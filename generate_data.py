@@ -243,7 +243,7 @@ def get_parameters_and_data(num_time_steps, state_space, measurement_space,\
     return (all_states, all_measurements, gen_params)
 
 
-def get_parameters_and_data_targets_identical_plus_noise(num_time_steps, state_space, measurement_space,\
+def get_parameters_and_data_targets_identical_plus_noise(num_time_steps, state_space, hidden_state_space, observed_state_space, measurement_space,\
     markov_order, num_targets):
     '''
     All targets have the same base initial state, transition, and measurement functions with some target specific noise added
@@ -261,15 +261,22 @@ def get_parameters_and_data_targets_identical_plus_noise(num_time_steps, state_s
     - gen_params: (GenerativeParameters) the parameters used to generate the data
 
     '''
-    HIDDEN_STATE_NOT_IN_PRIOR = True
+    HIDDEN_STATE_NOT_IN_PRIOR = False
 
     ######################## DEFINE DATA GENERATION PARAMETERS ########################
     #1-d np.array's have length 0 which causes some problems below without STATE_SPACE_TUPLE
     #tuple specifying the number of dimensions in the state space and the size of each dimension
-    if state_space.size > 1: #does state_space have more than one dimension? 
-        STATE_SPACE_TUPLE = tuple(state_space)
+    if hidden_state_space.size > 1: #does hidden_state_space have more than one dimension? 
+        HIDDEN_STATE_SPACE_TUPLE = tuple(hidden_state_space)
     else:
-        STATE_SPACE_TUPLE = (state_space,)
+        HIDDEN_STATE_SPACE_TUPLE = (hidden_state_space,)
+
+    if observed_state_space.size > 1: #does observed_state_space have more than one dimension? 
+        OBSERVED_STATE_SPACE_TUPLE = tuple(observed_state_space)
+    else:
+        OBSERVED_STATE_SPACE_TUPLE = (observed_state_space,)  
+    STATE_SPACE_TUPLE = HIDDEN_STATE_SPACE_TUPLE + OBSERVED_STATE_SPACE_TUPLE
+
     #1-d np.array's have length 0 which causes some problems below without MEASUREMENT_SPACE_TUPLE
     #tuple specifying the number of dimensions in the state space and the size of each dimension
     if measurement_space.size > 1: #does measurement_space have more than one dimension? 
@@ -300,9 +307,9 @@ def get_parameters_and_data_targets_identical_plus_noise(num_time_steps, state_s
 
     if HIDDEN_STATE_NOT_IN_PRIOR:
         BASE_INITIAL_STATE_PROBABILITIES = np.zeros(STATE_SPACE_TUPLE)
-        for cur_state_index in np.ndindex(*MEASUREMENT_SPACE_TUPLE):
-            mask = np.random.binomial(n=1, p=1, size=MEASUREMENT_SPACE_TUPLE + (1,))    
-            cur_initial_state_probs = np.random.rand(*MEASUREMENT_SPACE_TUPLE+(1,)) * mask
+        for cur_state_index in np.ndindex(*OBSERVED_STATE_SPACE_TUPLE):
+            mask = np.random.binomial(n=1, p=1, size=HIDDEN_STATE_SPACE_TUPLE + (1,))    
+            cur_initial_state_probs = np.random.rand(*HIDDEN_STATE_SPACE_TUPLE+(1,)) * mask
             cur_initial_state_probs = np.power(cur_initial_state_probs, 10.0)            
             # cur_initial_state_probs /= np.sum(cur_initial_state_probs)
             # print "BASE_INITIAL_STATE_PROBABILITIES.shape:", BASE_INITIAL_STATE_PROBABILITIES.shape
@@ -319,10 +326,10 @@ def get_parameters_and_data_targets_identical_plus_noise(num_time_steps, state_s
     for t_idx in range(num_targets):
         if HIDDEN_STATE_NOT_IN_PRIOR:
             CUR_NOISE_INITIAL_STATE_PROBABILITIES = np.zeros(STATE_SPACE_TUPLE)
-            for cur_state_index in np.ndindex(*MEASUREMENT_SPACE_TUPLE):
-                mask = np.random.binomial(n=1, p=1, size=MEASUREMENT_SPACE_TUPLE + (1,))    
-                cur_initial_state_probs = np.random.rand(*MEASUREMENT_SPACE_TUPLE+(1,)) * mask
-                cur_initial_state_probs = np.power(cur_initial_state_probs, 10.0)            
+            for cur_state_index in np.ndindex(*OBSERVED_STATE_SPACE_TUPLE):
+                mask = np.random.binomial(n=1, p=1, size=HIDDEN_STATE_SPACE_TUPLE + (1,))    
+                cur_initial_state_probs = np.random.rand(*HIDDEN_STATE_SPACE_TUPLE+(1,)) * mask
+                cur_initial_state_probs = np.power(cur_initial_state_probs, 20.0)            
                 # cur_initial_state_probs /= np.sum(cur_initial_state_probs)
                 # print "CUR_NOISE_INITIAL_STATE_PROBABILITIES.shape:", CUR_NOISE_INITIAL_STATE_PROBABILITIES.shape
                 # print "CUR_NOISE_INITIAL_STATE_PROBABILITIES[:, cur_state_index].shape:", CUR_NOISE_INITIAL_STATE_PROBABILITIES[:, cur_state_index].shape
@@ -332,7 +339,7 @@ def get_parameters_and_data_targets_identical_plus_noise(num_time_steps, state_s
         else:
             CUR_NOISE_INITIAL_STATE_PROBABILITIES = np.random.rand(*STATE_SPACE_TUPLE)
         #     CUR_NOISE_INITIAL_STATE_PROBABILITIES = np.ones(STATE_SPACE_TUPLE)
-            CUR_NOISE_INITIAL_STATE_PROBABILITIES = np.power(CUR_NOISE_INITIAL_STATE_PROBABILITIES, 10)
+            CUR_NOISE_INITIAL_STATE_PROBABILITIES = np.power(CUR_NOISE_INITIAL_STATE_PROBABILITIES, 20.0)
             CUR_NOISE_INITIAL_STATE_PROBABILITIES /= np.sum(CUR_NOISE_INITIAL_STATE_PROBABILITIES)
         CUR_INITIAL_STATE_PROBS = 1.0*BASE_INITIAL_STATE_PROBABILITIES + 0.0*CUR_NOISE_INITIAL_STATE_PROBABILITIES
         CUR_INITIAL_STATE_PROBS /= np.sum(CUR_INITIAL_STATE_PROBS)
@@ -359,7 +366,7 @@ def get_parameters_and_data_targets_identical_plus_noise(num_time_steps, state_s
     # SMOOTHING_POWER = 35
     # SMOOTHING_POWER = 25 #gt not most probable, 500 particles slightly finds slight better prob than 100, 100 better than 35, 35 better than 25
 
-    SMOOTHING_POWER = 30
+    SMOOTHING_POWER = 5
     # SMOOTHING_POWER = 10 #good for 10 targets
 
     # SMOOTHING_POWER = 9  #GOOD EXAMPLE for use_group_particles=True, state space of 100
@@ -453,6 +460,8 @@ def get_parameters_and_data_targets_identical_plus_noise(num_time_steps, state_s
             # BASE_EMISSION_PROBABILITIES[:, cur_state_index] /= np.sum(BASE_EMISSION_PROBABILITIES[:, cur_state_index])
 
             mask = np.random.binomial(n=1, p=.3, size=MEASUREMENT_SPACE_TUPLE)    
+            while np.sum(mask) == 0:
+                mask = np.random.binomial(n=1, p=.3, size=MEASUREMENT_SPACE_TUPLE)    
             cur_emission_probs = np.random.rand(*MEASUREMENT_SPACE_TUPLE) * mask
             cur_emission_probs = np.power(cur_emission_probs, SMOOTHING_POWER)          
             cur_emission_probs /= np.sum(cur_emission_probs)
@@ -472,10 +481,25 @@ def get_parameters_and_data_targets_identical_plus_noise(num_time_steps, state_s
 
     EMISSION_PROBABILITIES = []
     for i in range(num_targets):
-        cur_emission_probs = np.random.rand(*MEASUREMENT_SPACE_TUPLE)
-        cur_emission_probs = np.power(cur_emission_probs, SMOOTHING_POWER)          
-        cur_emission_probs /= np.sum(cur_emission_probs)
-        EMISSION_PROBABILITIES.append(1.0*BASE_EMISSION_PROBABILITIES + 0.0*cur_emission_probs)
+        cur_traget_emission_probs = np.zeros(emission_probs_shape)    
+        for cur_state_index in np.ndindex(*MEASUREMENT_SPACE_TUPLE):
+
+            mask = np.random.binomial(n=1, p=.3, size=MEASUREMENT_SPACE_TUPLE) 
+            while np.sum(mask) == 0:
+                mask = np.random.binomial(n=1, p=.3, size=MEASUREMENT_SPACE_TUPLE)    
+
+            cur_traget_emission_probs_observedStates = np.random.rand(*MEASUREMENT_SPACE_TUPLE) * mask
+            cur_traget_emission_probs_observedStates = np.power(cur_traget_emission_probs_observedStates, SMOOTHING_POWER)          
+            cur_traget_emission_probs_observedStates /= np.sum(cur_traget_emission_probs_observedStates)
+
+            if MEASUREMENT_SPACE_TUPLE == STATE_SPACE_TUPLE:
+                cur_traget_emission_probs[cur_state_index] = cur_traget_emission_probs_observedStates
+            else:
+                cur_traget_emission_probs[:, cur_state_index] = cur_traget_emission_probs_observedStates
+
+            # print cur_traget_emission_probs
+
+        EMISSION_PROBABILITIES.append(1.0*BASE_EMISSION_PROBABILITIES + 0.0*cur_traget_emission_probs)
         
     #generate the actual data
     gen_params = GenerativeParameters(num_time_steps=num_time_steps, state_space=state_space, \
@@ -486,6 +510,276 @@ def get_parameters_and_data_targets_identical_plus_noise(num_time_steps, state_s
 
     return (all_states, all_measurements, gen_params)
 
+
+def get_parameters_and_data_targets_identical_plus_noise1(num_time_steps, state_space, hidden_state_space, observed_state_space, measurement_space,\
+    markov_order, num_targets):
+    '''
+    All targets have the same base initial state, transition, and measurement functions with some target specific noise added
+
+    High level function that generates data and the parameters used to generate the data
+    Inputs:
+    - num_time_steps: (int) the number of time steps in the time series
+    - state_space: (np.array) [20,20,20] -> 3d state space of size 20x20
+    - measurement_space: (np.array) [20,20] -> 2d measurement space of size 20x20
+    - markov_order: (int) the number of previous states that determines the transition distribution
+
+    Outputs:
+    - all_states: (list of lists) all_states[i][j] is the ith target's state at the jth time instance
+    - all_measurements: (list of lists) all_measurements[i][j] is the ith target's measurement at the jth time instance
+    - gen_params: (GenerativeParameters) the parameters used to generate the data
+
+    '''
+    HIDDEN_STATE_NOT_IN_PRIOR = False
+
+    ######################## DEFINE DATA GENERATION PARAMETERS ########################
+    #1-d np.array's have length 0 which causes some problems below without STATE_SPACE_TUPLE
+    #tuple specifying the number of dimensions in the state space and the size of each dimension
+    if hidden_state_space.size > 1: #does hidden_state_space have more than one dimension? 
+        HIDDEN_STATE_SPACE_TUPLE = tuple(hidden_state_space)
+    else:
+        HIDDEN_STATE_SPACE_TUPLE = (hidden_state_space,)
+
+    if observed_state_space.size > 1: #does observed_state_space have more than one dimension? 
+        OBSERVED_STATE_SPACE_TUPLE = tuple(observed_state_space)
+    else:
+        OBSERVED_STATE_SPACE_TUPLE = (observed_state_space,)  
+    STATE_SPACE_TUPLE = HIDDEN_STATE_SPACE_TUPLE + OBSERVED_STATE_SPACE_TUPLE
+
+    #1-d np.array's have length 0 which causes some problems below without MEASUREMENT_SPACE_TUPLE
+    #tuple specifying the number of dimensions in the state space and the size of each dimension
+    if measurement_space.size > 1: #does measurement_space have more than one dimension? 
+        MEASUREMENT_SPACE_TUPLE = tuple(measurement_space)
+    else:
+        MEASUREMENT_SPACE_TUPLE = (measurement_space,)
+
+
+    #TRANSITION_PROBABILITIES has shape (markov_order+1)*state_space,
+    #that is the transition function's domain is over the previous markov_order states
+    #and the range is over the state space
+    PREVIOUS_DEPENDENT_STATES_SHAPE = []
+    transition_probs_shape = []
+    for i in range(markov_order):
+        PREVIOUS_DEPENDENT_STATES_SHAPE.extend(list(STATE_SPACE_TUPLE))
+        transition_probs_shape.extend(list(STATE_SPACE_TUPLE))
+
+    PREVIOUS_DEPENDENT_STATES_SHAPE = tuple(PREVIOUS_DEPENDENT_STATES_SHAPE)
+    transition_probs_shape.extend(list(STATE_SPACE_TUPLE))
+    transition_probs_shape = tuple(transition_probs_shape)
+
+    # INITIAL_STATE_PROBABILITIES = np.random.rand(*STATE_SPACE_TUPLE)
+    # INITIAL_STATE_PROBABILITIES = np.ones(STATE_SPACE_TUPLE)
+    # INITIAL_STATE_PROBABILITIES = np.power(INITIAL_STATE_PROBABILITIES, 1)
+    # INITIAL_STATE_PROBABILITIES /= np.sum(INITIAL_STATE_PROBABILITIES)
+
+    ALL_INITIAL_STATE_PROBABILITIES = []
+
+    if HIDDEN_STATE_NOT_IN_PRIOR:
+        BASE_INITIAL_STATE_PROBABILITIES = np.zeros(STATE_SPACE_TUPLE)
+        for cur_state_index in np.ndindex(*OBSERVED_STATE_SPACE_TUPLE):
+            mask = np.random.binomial(n=1, p=1, size=HIDDEN_STATE_SPACE_TUPLE + (1,))    
+            cur_initial_state_probs = np.random.rand(*HIDDEN_STATE_SPACE_TUPLE+(1,)) * mask
+            cur_initial_state_probs = np.power(cur_initial_state_probs, 10.0)            
+            # cur_initial_state_probs /= np.sum(cur_initial_state_probs)
+            # print "BASE_INITIAL_STATE_PROBABILITIES.shape:", BASE_INITIAL_STATE_PROBABILITIES.shape
+            # print "BASE_INITIAL_STATE_PROBABILITIES[:, cur_state_index].shape:", BASE_INITIAL_STATE_PROBABILITIES[:, cur_state_index].shape
+            # print "cur_initial_state_probs.shape:", cur_initial_state_probs.shape
+            BASE_INITIAL_STATE_PROBABILITIES[:, cur_state_index] = cur_initial_state_probs
+        BASE_INITIAL_STATE_PROBABILITIES /= np.sum(BASE_INITIAL_STATE_PROBABILITIES)
+    else:
+        BASE_INITIAL_STATE_PROBABILITIES = np.random.rand(*STATE_SPACE_TUPLE)
+    #     BASE_INITIAL_STATE_PROBABILITIES = np.ones(STATE_SPACE_TUPLE)
+        BASE_INITIAL_STATE_PROBABILITIES = np.power(BASE_INITIAL_STATE_PROBABILITIES, 10)
+        BASE_INITIAL_STATE_PROBABILITIES /= np.sum(BASE_INITIAL_STATE_PROBABILITIES)
+
+    for t_idx in range(num_targets):
+        if HIDDEN_STATE_NOT_IN_PRIOR:
+            CUR_NOISE_INITIAL_STATE_PROBABILITIES = np.zeros(STATE_SPACE_TUPLE)
+            for cur_state_index in np.ndindex(*OBSERVED_STATE_SPACE_TUPLE):
+                mask = np.random.binomial(n=1, p=1, size=HIDDEN_STATE_SPACE_TUPLE + (1,))    
+                cur_initial_state_probs = np.random.rand(*HIDDEN_STATE_SPACE_TUPLE+(1,)) * mask
+                cur_initial_state_probs = np.power(cur_initial_state_probs, 30.0)            
+                # cur_initial_state_probs /= np.sum(cur_initial_state_probs)
+                # print "CUR_NOISE_INITIAL_STATE_PROBABILITIES.shape:", CUR_NOISE_INITIAL_STATE_PROBABILITIES.shape
+                # print "CUR_NOISE_INITIAL_STATE_PROBABILITIES[:, cur_state_index].shape:", CUR_NOISE_INITIAL_STATE_PROBABILITIES[:, cur_state_index].shape
+                # print "cur_initial_state_probs.shape:", cur_initial_state_probs.shape
+                CUR_NOISE_INITIAL_STATE_PROBABILITIES[:, cur_state_index] = cur_initial_state_probs
+            CUR_NOISE_INITIAL_STATE_PROBABILITIES /= np.sum(CUR_NOISE_INITIAL_STATE_PROBABILITIES)
+        else:
+            CUR_NOISE_INITIAL_STATE_PROBABILITIES = np.random.rand(*STATE_SPACE_TUPLE)
+        #     CUR_NOISE_INITIAL_STATE_PROBABILITIES = np.ones(STATE_SPACE_TUPLE)
+            CUR_NOISE_INITIAL_STATE_PROBABILITIES = np.power(CUR_NOISE_INITIAL_STATE_PROBABILITIES, 30.0)
+            CUR_NOISE_INITIAL_STATE_PROBABILITIES /= np.sum(CUR_NOISE_INITIAL_STATE_PROBABILITIES)
+        CUR_INITIAL_STATE_PROBS = 1.0*BASE_INITIAL_STATE_PROBABILITIES + 0.0*CUR_NOISE_INITIAL_STATE_PROBABILITIES
+        CUR_INITIAL_STATE_PROBS /= np.sum(CUR_INITIAL_STATE_PROBS)
+        ALL_INITIAL_STATE_PROBABILITIES.append(CUR_INITIAL_STATE_PROBS)
+
+
+
+
+    BASE_TRANSITION_PROBABILITIES = np.zeros(transition_probs_shape)
+
+    # SMOOTHING_POWER = 120
+    # SMOOTHING_POWER = 75
+
+
+    #MHT gets correct result for 3 particles, not 2 and gt is still ~ most probable
+    #another run, MHT gets correct result for 50 particles, not 40 and gt is still ~ most probable
+    #another run, too much noise
+    # SMOOTHING_POWER = 65 #good noise for use_group_particles=False
+
+
+    # SMOOTHING_POWER = 50 
+    # SMOOTHING_POWER = 46
+    # SMOOTHING_POWER = 42
+    # SMOOTHING_POWER = 35
+    # SMOOTHING_POWER = 25 #gt not most probable, 500 particles slightly finds slight better prob than 100, 100 better than 35, 35 better than 25
+
+    SMOOTHING_POWER = 30
+    # SMOOTHING_POWER = 10 #good for 10 targets
+
+    # SMOOTHING_POWER = 9  #GOOD EXAMPLE for use_group_particles=True, state space of 100
+
+    # SMOOTHING_POWER = 7 #GOOD EXAMPLE for use_group_particles=True
+
+    # SMOOTHING_POWER = 5 #ground truth doesn't have largest log-likelihood
+    # SMOOTHING_POWER = 4
+    # SMOOTHING_POWER = 3 #ground truth doesn't have largest log-likelihood
+
+
+
+    use_constant_size_non_zero_transition_probs = True
+    non_zero_transition_state_count = 3
+    # non_zero_transition_probs = np.array([.98, .015, .005])
+    non_zero_transition_probs = np.array([.999, .0009, .0001])
+
+    MAKE_TRANSITION_PROBS_SIMILAR = True
+    if MAKE_TRANSITION_PROBS_SIMILAR: 
+        #iterate over each state and create a transition distribution that sums to 1 over all next_states
+        for cur_state_index in np.ndindex(*PREVIOUS_DEPENDENT_STATES_SHAPE):
+            if use_constant_size_non_zero_transition_probs:
+                non_zero_transition_states1d = np.random.choice(np.prod(STATE_SPACE_TUPLE), non_zero_transition_state_count, replace=False)
+                for t_idx, cur_non_zero_transition_states1d in enumerate(non_zero_transition_states1d):
+                    cur_non_zero_transition_state_full_dimension = np.unravel_index(cur_non_zero_transition_states1d, STATE_SPACE_TUPLE)        
+                    #note, + used to concatenate tuples
+                    BASE_TRANSITION_PROBABILITIES[cur_state_index + cur_non_zero_transition_state_full_dimension] = non_zero_transition_probs[t_idx]
+
+            else:
+                mask = np.random.binomial(n=1, p=1.0, size=STATE_SPACE_TUPLE)
+                BASE_TRANSITION_PROBABILITIES[cur_state_index] = np.random.rand(*STATE_SPACE_TUPLE) * mask
+                BASE_TRANSITION_PROBABILITIES[cur_state_index] = np.power(BASE_TRANSITION_PROBABILITIES[cur_state_index], SMOOTHING_POWER)
+                BASE_TRANSITION_PROBABILITIES[cur_state_index] /= np.sum(BASE_TRANSITION_PROBABILITIES[cur_state_index])
+
+        TRANSITION_PROBABILITIES = []
+        for i in range(num_targets):
+            cur_noise_transition_probs = np.random.rand(*STATE_SPACE_TUPLE)
+            cur_noise_transition_probs /= np.sum(cur_noise_transition_probs)
+            TRANSITION_PROBABILITIES.append(1.0*BASE_TRANSITION_PROBABILITIES + 0.0*cur_noise_transition_probs)
+    else:
+        TRANSITION_PROBABILITIES = []
+        for i in range(num_targets):
+            CUR_TRANSITION_PROBABILITIES = np.zeros(transition_probs_shape)
+
+            #iterate over each state and create a transition distribution that sums to 1 over all next_states
+            for cur_state_index in np.ndindex(*PREVIOUS_DEPENDENT_STATES_SHAPE):
+                if use_constant_size_non_zero_transition_probs:
+                    non_zero_transition_states1d = np.random.choice(np.prod(STATE_SPACE_TUPLE), non_zero_transition_state_count, replace=False)
+                    for t_idx, cur_non_zero_transition_states1d in enumerate(non_zero_transition_states1d):
+                        cur_non_zero_transition_state_full_dimension = np.unravel_index(cur_non_zero_transition_states1d, STATE_SPACE_TUPLE)        
+                        #note, + used to concatenate tuples
+                        CUR_TRANSITION_PROBABILITIES[cur_state_index + cur_non_zero_transition_state_full_dimension] = non_zero_transition_probs[t_idx]
+                else:
+                    mask = np.random.binomial(n=1, p=1.0, size=STATE_SPACE_TUPLE)
+                    CUR_TRANSITION_PROBABILITIES[cur_state_index] = np.random.rand(*STATE_SPACE_TUPLE) * mask
+                    CUR_TRANSITION_PROBABILITIES[cur_state_index] = np.power(CUR_TRANSITION_PROBABILITIES[cur_state_index], SMOOTHING_POWER)
+                    CUR_TRANSITION_PROBABILITIES[cur_state_index] /= np.sum(CUR_TRANSITION_PROBABILITIES[cur_state_index])
+
+            TRANSITION_PROBABILITIES.append(CUR_TRANSITION_PROBABILITIES)
+
+    print "TRANSITION_PROBABILITIES[0][0]:", TRANSITION_PROBABILITIES[0][0]
+
+    emission_probs_shape = list(STATE_SPACE_TUPLE)
+    emission_probs_shape.extend(list(MEASUREMENT_SPACE_TUPLE))
+    emission_probs_shape = tuple(emission_probs_shape)
+        
+    BASE_EMISSION_PROBABILITIES = np.zeros(emission_probs_shape)
+
+    use_identical_emission_probs = False #use the same emission probabilities for every state for easy visualization, only implemented for 1-d state space
+    add_constant_emission_probs = False
+    #iterate over each state and create an emission distribution that sums to 1 over all measurements
+    # for cur_state_index in np.ndindex(*STATE_SPACE_TUPLE):
+    for cur_state_index in np.ndindex(*MEASUREMENT_SPACE_TUPLE):
+        if use_identical_emission_probs:
+    #         constant_emission_probs = np.array([.1, .2, .4, .2, .1])
+    #         constant_emission_probs = np.array([.025, .075, .1, .15, .3, .15, .1, .075, .025])
+    #         constant_emission_probs = np.array([1 for i in range(5)])
+    #         constant_emission_probs = constant_emission_probs/np.sum(constant_emission_probs)
+            constant_emission_probs = np.array([.005, .02, .95, .02, .005])
+    #         constant_emission_probs = np.array([.01, .02, .07, .8, .07, .02, .01])
+
+            for emission_idx in range(len(constant_emission_probs)):
+                BASE_EMISSION_PROBABILITIES[cur_state_index, (cur_state_index[0] + emission_idx - len(constant_emission_probs)//2)%STATE_SPACE_TUPLE[0]] = constant_emission_probs[emission_idx]
+        else:
+            # mask = np.random.binomial(n=1, p=.3, size=MEASUREMENT_SPACE_TUPLE)    
+            # BASE_EMISSION_PROBABILITIES[:, cur_state_index] = np.random.rand(*MEASUREMENT_SPACE_TUPLE) * mask
+            # BASE_EMISSION_PROBABILITIES[:, cur_state_index] = np.power(BASE_EMISSION_PROBABILITIES[:, cur_state_index], SMOOTHING_POWER)
+            # if add_constant_emission_probs:
+            #     constant_emission_probs = 1*np.array([.03, .07, .8, .07, .03])
+            #     for emission_idx in range(len(constant_emission_probs)):
+            #         BASE_EMISSION_PROBABILITIES[cur_state_index, (cur_state_index[0] + emission_idx - len(constant_emission_probs)//2)%STATE_SPACE_TUPLE[0]] += constant_emission_probs[emission_idx]
+            
+            # BASE_EMISSION_PROBABILITIES[:, cur_state_index] /= np.sum(BASE_EMISSION_PROBABILITIES[:, cur_state_index])
+
+            mask = np.random.binomial(n=1, p=.3, size=MEASUREMENT_SPACE_TUPLE)   
+            while np.sum(mask) == 0:
+                mask = np.random.binomial(n=1, p=.3, size=MEASUREMENT_SPACE_TUPLE)    
+
+            cur_emission_probs = np.random.rand(*MEASUREMENT_SPACE_TUPLE) * mask
+            cur_emission_probs = np.power(cur_emission_probs, SMOOTHING_POWER)          
+            cur_emission_probs /= np.sum(cur_emission_probs)
+
+            if MEASUREMENT_SPACE_TUPLE == STATE_SPACE_TUPLE:
+                BASE_EMISSION_PROBABILITIES[cur_state_index] = cur_emission_probs
+            else:
+                BASE_EMISSION_PROBABILITIES[:, cur_state_index] = cur_emission_probs
+            # for cur_unobserved_state_index in np.ndindex(*MEASUREMENT_SPACE_TUPLE):
+               #  cur_unobserved_state_emission_noise = np.random.rand(*MEASUREMENT_SPACE_TUPLE) * mask
+               #  cur_unobserved_state_emission_noise /= np.sum(cur_unobserved_state_emission_noise)*10
+               #  cur_emission_probs_plus_noise = cur_emission_probs + cur_unobserved_state_emission_noise
+               #  cur_emission_probs_plus_noise /= np.sum(cur_emission_probs_plus_noise)
+               #  BASE_EMISSION_PROBABILITIES[cur_unobserved_state_index, cur_state_index] = cur_emission_probs_plus_noise
+
+    print "BASE_EMISSION_PROBABILITIES[0]:", BASE_EMISSION_PROBABILITIES[0]
+
+    EMISSION_PROBABILITIES = []
+    for i in range(num_targets):
+        cur_traget_emission_probs = np.zeros(emission_probs_shape)    
+        for cur_state_index in np.ndindex(*MEASUREMENT_SPACE_TUPLE):
+
+            mask = np.random.binomial(n=1, p=.3, size=MEASUREMENT_SPACE_TUPLE)    
+            while np.sum(mask) == 0:
+                mask = np.random.binomial(n=1, p=.3, size=MEASUREMENT_SPACE_TUPLE)    
+
+            cur_traget_emission_probs_observedStates = np.random.rand(*MEASUREMENT_SPACE_TUPLE) * mask
+            cur_traget_emission_probs_observedStates = np.power(cur_traget_emission_probs_observedStates, SMOOTHING_POWER)          
+            cur_traget_emission_probs_observedStates /= np.sum(cur_traget_emission_probs_observedStates)
+
+            if MEASUREMENT_SPACE_TUPLE == STATE_SPACE_TUPLE:
+                cur_traget_emission_probs[cur_state_index] = cur_traget_emission_probs_observedStates
+            else:
+                cur_traget_emission_probs[:, cur_state_index] = cur_traget_emission_probs_observedStates
+
+            # print cur_traget_emission_probs
+
+        EMISSION_PROBABILITIES.append(0.0*BASE_EMISSION_PROBABILITIES + 1.0*cur_traget_emission_probs)
+        
+    #generate the actual data
+    gen_params = GenerativeParameters(num_time_steps=num_time_steps, state_space=state_space, \
+        previous_dependent_states_shape=PREVIOUS_DEPENDENT_STATES_SHAPE, all_initial_state_probabilities=ALL_INITIAL_STATE_PROBABILITIES, \
+        transition_probabilities=TRANSITION_PROBABILITIES, emission_probabilities=EMISSION_PROBABILITIES, markov_order=markov_order, \
+        num_targets=num_targets)
+    (all_states, all_measurements) = generate_all_target_data(gen_params)
+
+    return (all_states, all_measurements, gen_params)
 
 
 

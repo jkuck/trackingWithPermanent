@@ -212,7 +212,7 @@ class TargetStateNode:
         assert(posterior.shape == self.gen_params.previous_dependent_states_shape)
         prior = np.zeros(posterior.shape)
         
-        #iterate over each state and create a transition distribution that sums to 1 over all next_states
+        #iterate over each state
         for cur_state_index in np.ndindex(*self.gen_params.previous_dependent_states_shape):
             # print "posterior[cur_state_index]:", posterior[cur_state_index]
             # print "self.transition_probabilities[cur_state_index]:", self.transition_probabilities[cur_state_index]
@@ -221,6 +221,16 @@ class TargetStateNode:
 
             # prior has shape previous_dependent_states_shape, we keep markov_order - 1 previous states
             prior[cur_state_index[len(self.gen_params.state_space_tuple):]] += posterior[cur_state_index]*self.transition_probabilities[cur_state_index]
+        # if np.max(posterior) > .98:
+        #     print 'poster is concentrated np.max(np.sum(posterior, axis=0)) =', np.max(np.sum(posterior, axis=0)) 
+        #     print 'poster is concentrated np.max(posterior) =', np.max(posterior) 
+        #     print 'np.max(np.sum(prior, axis=0)) =', np.max(np.sum(prior, axis=0)) 
+        #     assert(np.max(np.sum(prior, axis=0)) > .97) 
+        # else:
+        #     print 'poster is NOT concentrated np.max(np.sum(posterior, axis=0)) =', np.max(np.sum(posterior, axis=0))
+        #     print 'poster is concentrated np.max(posterior) =', np.max(posterior)             
+        #     print 'np.max(np.sum(prior, axis=0)) =', np.max(np.sum(prior, axis=0))
+
         assert(prior.shape == self.gen_params.previous_dependent_states_shape)
         # print "prior=", prior
         return prior

@@ -11,15 +11,15 @@ COLORMAP = plt.cm.gist_ncar
 
 
 
-def run_experiment_over_parameter_set(num_time_steps, state_space, measurement_space, markov_order, num_targets):
+def run_experiment_over_parameter_set(num_time_steps, state_space, hidden_state_space, observed_state_space, measurement_space, markov_order, num_targets):
 	# (all_states, all_measurements, gen_params) = generate_data.get_parameters_and_data(num_time_steps, state_space, measurement_space,
 	# 	markov_order, num_targets)
 
-	(all_states, all_measurements, gen_params) = generate_data.get_parameters_and_data_targets_identical_plus_noise(num_time_steps, state_space, measurement_space,
+	(all_states, all_measurements, gen_params) = generate_data.get_parameters_and_data_targets_identical_plus_noise(num_time_steps, state_space, hidden_state_space, observed_state_space, measurement_space,
 		markov_order, num_targets)
 
 
-	experiment_name = 'compare_group_particles_lowTransitionNoise_hiddenState_genDataTargetsIdentical_%dtargets1' % num_targets
+	experiment_name = 'compare_group_particles_lowTransitionNoise_hiddenStateSize2_genDataTargetsIdentical_%dtargets2' % num_targets
 	experiment_folder = './' + experiment_name + '/'
 	os.mkdir(experiment_folder)
 
@@ -34,7 +34,7 @@ def run_experiment_over_parameter_set(num_time_steps, state_space, measurement_s
 
 
 	# for (n_particles, method) in [(10, 'MHT'), (10, 'exact_sampling')]:
-	for (n_particles, method) in [(10, 'MHT'), (10, 'exact_sampling'), (30, 'MHT'), (30, 'exact_sampling'), (100, 'MHT'), (100, 'exact_sampling'), (200, 'MHT'), (200, 'exact_sampling'), (1000, 'MHT'), (300, 'exact_sampling'), (10000, 'MHT'), (500, 'exact_sampling'), (50000, 'MHT'), (1000, 'exact_sampling')]:
+	for (n_particles, method) in [(10, 'MHT'), (10, 'exact_sampling'), (100, 'MHT'), (25, 'exact_sampling'), (1000, 'MHT'), (50, 'exact_sampling'), (10000, 'MHT'), (51, 'exact_sampling'), (50000, 'MHT'), (53, 'exact_sampling'), (100000, 'MHT'), (51, 'exact_sampling'), (500000, 'MHT'), (54, 'exact_sampling')]:
 	    for use_group_particles in [True, False]:
 	        cur_experiment = "%s_particles=%d_use_group_particles=%s" % (method, n_particles, use_group_particles)
 	        print("cur_experiment:", cur_experiment)
@@ -102,13 +102,21 @@ def replot_previous_experiment_data():
 
 
 if __name__ == "__main__":
-	np.random.seed(2)
+	np.random.seed(4)
 
-	num_time_steps = 6
-	state_space = np.array((20,20))
+	# num_time_steps = 6
+	# state_space = np.array((20,20))
+	# measurement_space = np.array((20))
+	# markov_order = 1
+	# num_targets = 20
+
+	num_time_steps = 4
+	hidden_state_space = np.array((2))
+	observed_state_space = np.array((20))
+	state_space = np.array((2, 20))
 	measurement_space = np.array((20))
 	markov_order = 1
-	num_targets = 20
+	num_targets = 15	
 
-	run_experiment_over_parameter_set(num_time_steps, state_space, measurement_space, markov_order, num_targets)
+	run_experiment_over_parameter_set(num_time_steps, state_space, hidden_state_space, observed_state_space, measurement_space, markov_order, num_targets)
 	        
