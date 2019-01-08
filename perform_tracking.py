@@ -1,10 +1,13 @@
 from __future__ import division
 import sys
 import numpy as np
-# from filterpy.discrete_bayes import update as discrete_bayes_update
 import math
 from pymatgen.optimization import linear_assignment
 from IPython.utils import io
+from scipy.stats import multivariate_normal
+from numpy.linalg import inv as matrix_inverse
+import matplotlib.pyplot as plt
+import copy
 
 import generate_data
 
@@ -20,12 +23,18 @@ sys.path.insert(0, '/Users/jkuck/research/gumbel_sample_permanent')
 from constant_num_targets_sample_permenant import associationMatrix, multi_matrix_sample_associations_without_replacement
 
 # N_PARTICLES = 5
-INFEASIBLE_COST = 9999999999999999
 
 class TargetStateNode:
     '''
     Represents the state of a target at one instance in time
     TargetStateNode's are linked to form a tree
+
+    The target state is a 1d position, velocity and acceleration.  Acceleration
+    is applied by a spring (Force = -K*x, mass = 1)
+
+    state X = [x] position
+              [v] velocity
+              [a] acceleration
     '''
     def __init__(self, gen_params, parent_node=None, debug_info=None, target_idx=None):
         '''
@@ -46,17 +55,24 @@ class TargetStateNode:
         self.child_nodes = {}
 
         #posterior distribution of the target's state for the current time step after updating with its associated measurement
-        self.posterior = np.empty(gen_params.state_space_tuple)
+        #tuple of (X, P) with
+        #   X: np.array of state means
+        #   P: np.array of state covariance
+        self.posterior =  None
 
         #prior distribution of the target's predicted state at the next time step
-        self.prior = np.empty(gen_params.previous_dependent_states_shape)
+        #tuple of (X, P) with
+        #   X: np.array of state means
+        #   P: np.array of state covariance        
+        self.prior = None
 
-        self.emission_probabilities = gen_params.emission_probabilities[target_idx]
-        self.transition_probabilities = gen_params.transition_probabilities[target_idx]
         self.target_idx = target_idx
 
         self.gen_params = gen_params
         self.debug_info = debug_info
+
+        #used when different targets have different spring constants
+        self.spring_constant = gen_params.spring_constants[target_idx]
 
     def print_measurement_associations(self, leaf_node = False):
         if leaf_node:
@@ -102,50 +118,38 @@ class TargetStateNode:
             return parent_measurements
 
 
-    def initialize_root_target_with_known_association(self, measurement, target_idx):
+    def initialize_root_target_initialAssociationKnown(self, measurement, target_idx):
         '''
-        set the prior and posterior distributions of a root target (created on this time step) when the initial association is known
+
         '''
-        print 'target initialized with measurement:', measurement
-        likelihood = self.get_likelihood(measurement)
-        # print 'likelihood =', likelihood
-        # print 'self.gen_params.all_initial_state_probabilities[target_idx] =', self.gen_params.all_initial_state_probabilities[target_idx]
-        self.posterior = discrete_bayes_update(likelihood, self.gen_params.all_initial_state_probabilities[target_idx])
-        # print 'initial self.posterior:', list(self.posterior).index(1)
-        #resize posterior to previous_dependent_states_shape,
-        resized_posterior = np.zeros(self.gen_params.previous_dependent_states_shape)
-        for cur_state_index in np.ndindex(*self.gen_params.state_space_tuple):
-            repeated_state_space_tuple = cur_state_index
-            for i in range(self.gen_params.markov_order-1):
-                repeated_state_space_tuple += cur_state_index
-            resized_posterior[repeated_state_space_tuple] = self.posterior[cur_state_index]
-        self.posterior = resized_posterior
+        assert(len(measurement) == 2)
+        posterior_X = np.array([[                   measurement[0]],
+                            [                       measurement[1]],
+                            [-self.spring_constant*measurement[0]]])
+        posterior_P = np.array([[self.gen_params.measurement_variance,                    0,                                  0],
+                                [                   0, self.gen_params.initial_vel_variance,                                  0],
+                                [                   0,                    0, (self.spring_constant**2)*self.gen_params.measurement_variance]]) 
+           
+        self.posterior = (posterior_X, posterior_P)
+        self.prior = self.kf_predict()
 
-        # print 'posterior =', self.posterior
-        assert(self.posterior.shape == self.gen_params.previous_dependent_states_shape)
-        self.prior = self.predict(self.posterior)
-        assert(self.prior.shape == self.gen_params.previous_dependent_states_shape)
-
-    def initialize_root_target_unknown_association(self, target_idx):
+    def initialize_root_target_initialAssociationNotKnown(self, target_idx):
         '''
         set the prior and posterior distributions of a root target (created on this time step) with only a prior 
         (when the initial association is unknown)
         '''
-        prior = self.gen_params.all_initial_state_probabilities[target_idx]
-        print("prior initialized with max =", np.max(prior), "at index", np.argmax(prior))
-        #resize prior to previous_dependent_states_shape,
-        resized_prior = np.zeros(self.gen_params.previous_dependent_states_shape)
-        for cur_state_index in np.ndindex(*self.gen_params.state_space_tuple):
-            repeated_state_space_tuple = cur_state_index
-            for i in range(self.gen_params.markov_order-1):
-                repeated_state_space_tuple += cur_state_index
-            resized_prior[repeated_state_space_tuple] = prior[cur_state_index]
-        self.prior = resized_prior
-        print("resized prior initialized with max =", np.max(self.prior), "at index", np.argmax(self.prior), 'resized_prior.shape:', self.prior.shape)
+        position_mean = self.gen_params.initial_position_means[target_idx]
+        initial_position_variance = self.gen_params.initial_position_variance
+        initial_vel_variance = self.gen_params.initial_vel_variance
+        prior_X = np.array([[                 position_mean],
+                            [                             0],
+                            [-self.spring_constant*position_mean]])
+        prior_P = np.array([[initial_position_variance,                    0,                                       0],
+                            [                        0, initial_vel_variance,                                       0],
+                            [                        0,                    0, (self.spring_constant**2)*initial_position_variance]]) 
 
-        self.posterior = np.ones(self.gen_params.previous_dependent_states_shape) #dummy posterior
-        # print 'prior =', self.prior
-        assert(self.prior.shape == self.gen_params.previous_dependent_states_shape)
+        self.posterior = None
+        self.prior = (prior_X, prior_P)
 
 
     def create_child_target(self, meas_idx, measurement):
@@ -164,76 +168,11 @@ class TargetStateNode:
         else:
             new_child_node = TargetStateNode(gen_params=self.gen_params, parent_node=self, debug_info={'meas_idx':meas_idx, 'measurement':measurement},\
                                              target_idx=self.target_idx)
-            #the likelihood of each state given the measurement=the probability of the measurement given each state 
-            likelihood = self.get_likelihood(measurement)
-            new_child_node.posterior = discrete_bayes_update(likelihood, self.prior)
-            new_child_node.debug_info['likelihood'] = likelihood
+            new_child_node.posterior = self.kf_update(measurement)
             new_child_node.debug_info['prior'] = self.prior
-
-            new_child_node.prior = self.predict(new_child_node.posterior)
+            new_child_node.prior = new_child_node.kf_predict()
             self.child_nodes[meas_idx] = new_child_node
             return new_child_node
-
-    def get_likelihood(self, z):
-        '''
-        
-        The likelihood of a state given a measurement is the same as the 
-        probability of a measurement given the state. 
-        
-        Inputs:
-        - z: (np.array) a measurement, has the same shape as the state space
-        - emission_probabilities: (np.array) has shape concatenate(state_space, state_space) e.g.
-            (10, 5, 3, 10, 5, 3) for the above example.  The element (a, b, c, d, e, f) specifies the
-            probability of emitting the measurement (d, e, f) when the state is (a, b, c).  Summing over
-            emission_probabilities(a,b,c, :, :, :) must be 1 to be a properly normalized distribution
-        
-        Outputs:
-        - likelihood: (np.array) specifies the likelihood of each state given the measurement.
-                      has the same shape as the state space
-        '''
-        likelihood = self.emission_probabilities[..., z].squeeze()
-        # print('-'*80)
-        # print("measurement:", z, "likelihood[0]:", likelihood[0])
-        # print('-'*80)
-        assert(likelihood.shape == self.gen_params.state_space_tuple), (likelihood.shape, self.gen_params.state_space_tuple, self.emission_probabilities.shape)
-        return likelihood
-
-    def predict(self, posterior):
-        '''
-        Inputs:
-        - posterior: (np.array) specifies a probability for each discrete element in the state space.
-                 Has the same shape as the state space. (this is the posterior distribution after
-                 incorporating the measurement from the current time step)
-                             
-        Outputs:
-        - prior: (np.array) specifies a probability for each discrete element in the state space.
-                 Has the same shape as the state space. (this is the prior distribution for the next time step)
-        '''
-        assert(posterior.shape == self.gen_params.previous_dependent_states_shape)
-        prior = np.zeros(posterior.shape)
-        
-        #iterate over each state
-        for cur_state_index in np.ndindex(*self.gen_params.previous_dependent_states_shape):
-            # print "posterior[cur_state_index]:", posterior[cur_state_index]
-            # print "self.transition_probabilities[cur_state_index]:", self.transition_probabilities[cur_state_index]
-
-            # prior += posterior[cur_state_index]*self.transition_probabilities[cur_state_index]
-
-            # prior has shape previous_dependent_states_shape, we keep markov_order - 1 previous states
-            prior[cur_state_index[len(self.gen_params.state_space_tuple):]] += posterior[cur_state_index]*self.transition_probabilities[cur_state_index]
-        # if np.max(posterior) > .98:
-        #     print 'poster is concentrated np.max(np.sum(posterior, axis=0)) =', np.max(np.sum(posterior, axis=0)) 
-        #     print 'poster is concentrated np.max(posterior) =', np.max(posterior) 
-        #     print 'np.max(np.sum(prior, axis=0)) =', np.max(np.sum(prior, axis=0)) 
-        #     assert(np.max(np.sum(prior, axis=0)) > .97) 
-        # else:
-        #     print 'poster is NOT concentrated np.max(np.sum(posterior, axis=0)) =', np.max(np.sum(posterior, axis=0))
-        #     print 'poster is concentrated np.max(posterior) =', np.max(posterior)             
-        #     print 'np.max(np.sum(prior, axis=0)) =', np.max(np.sum(prior, axis=0))
-
-        assert(prior.shape == self.gen_params.previous_dependent_states_shape)
-        # print "prior=", prior
-        return prior
 
     def get_posteriors(self):
         '''
@@ -242,21 +181,13 @@ class TargetStateNode:
                       target's state at the jth time step
 
         '''
-        if self.parent_node is None:
-            # posteriors = [self.posterior]
-            #marginalize over previous states
-            assert((self.gen_params.markov_order)*len(self.gen_params.state_space_tuple) == len(self.posterior.shape)), ((self.gen_params.markov_order)*len(self.gen_params.state_space_tuple), len(self.posterior.shape))
-            axes_to_marginalize_over = tuple(range((self.gen_params.markov_order - 1)*len(self.gen_params.state_space_tuple)))
-            marginal_posterior = np.sum(self.posterior, axis=axes_to_marginalize_over)
-            posteriors = [marginal_posterior]
+        if INITIAL_ASSOCIATIONS_KNOWN and self.parent_node is None:
+            posteriors = [self.posterior[0][0]]
+        elif not INITIAL_ASSOCIATIONS_KNOWN and self.parent_node.parent_node is None:
+            posteriors = [self.posterior[0][0]]
         else:
-            posteriors = self.parent_node.get_posteriors()
-            # posteriors.append(self.posterior)
-            #marginalize over previous states
-            assert((self.gen_params.markov_order)*len(self.gen_params.state_space_tuple) == len(self.posterior.shape)), ((self.gen_params.markov_order)*len(self.gen_params.state_space_tuple), len(self.posterior.shape))
-            axes_to_marginalize_over = tuple(range((self.gen_params.markov_order - 1)*len(self.gen_params.state_space_tuple)))
-            marginal_posterior = np.sum(self.posterior, axis=axes_to_marginalize_over)    
-            posteriors.append(marginal_posterior)
+            posteriors = self.parent_node.get_posteriors()   
+            posteriors.append(self.posterior[0][0])
                     
         return posteriors
 
@@ -268,66 +199,92 @@ class TargetStateNode:
 
         '''
         if self.parent_node is None:
-            # priors = [self.prior]
-            #marginalize over previous states
-            assert((self.gen_params.markov_order)*len(self.gen_params.state_space_tuple) == len(self.prior.shape)), ((self.gen_params.markov_order)*len(self.gen_params.state_space_tuple), len(self.prior.shape))
-            axes_to_marginalize_over = tuple(range((self.gen_params.markov_order - 1)*len(self.gen_params.state_space_tuple)))
-            marginal_prior = np.sum(self.prior, axis=axes_to_marginalize_over)
-            priors = [marginal_prior]
-
-
+            priors = [self.prior[0][0]]
         else:
             priors = self.parent_node.get_priors()
-            # priors.append(self.prior)
-            #marginalize over previous states
-            assert((self.gen_params.markov_order)*len(self.gen_params.state_space_tuple) == len(self.prior.shape)), ((self.gen_params.markov_order)*len(self.gen_params.state_space_tuple), len(self.prior.shape))
-            axes_to_marginalize_over = tuple(range((self.gen_params.markov_order - 1)*len(self.gen_params.state_space_tuple)))
-            marginal_prior = np.sum(self.prior, axis=axes_to_marginalize_over)    
-            priors.append(marginal_prior)            
+            priors.append(self.prior[0][0])         
         return priors
+
+
+    def kf_predict(self):
+        """
+        Run kalman filter prediction on this target
+        Inputs:
+            -dt: time step to run prediction on
+        Output:
+            -x_predict: predicted state, numpy array with dimensions 
+            -P_predict: predicted covariance, numpy array with dimensions 
+
+        """
+        dt = self.gen_params.dt
+        k = self.spring_constant #spring constant, Force = -k*x
+        F = np.array([[1.0,    dt,    .5*(dt**2)],
+                      [0.0,   1.0,            dt],
+                      [ -k, -k*dt, -k*.5*(dt**2)]])
+        # F = np.array([[1.0,    dt,    .5*(dt**2)],
+        #               [0.0,   1.0,            dt],
+        #               [ -k*(1 - k*(dt**2)/2), -k*(2*dt - k*(dt**3)/2), k*(1.5*(dt**2) - .25*k*(dt**4))]])
+        self_X = self.posterior[0]
+        self_P = self.posterior[1]
+        x_predict = np.dot(F, self_X)
+        P_predict = np.dot(np.dot(F, self_P), F.T) + GEN_PARAMS.q_matrix
+        assert(P_predict[0][0] > 0 and
+               P_predict[1][1] > 0 and
+               P_predict[2][2] > 0), (self_P, GEN_PARAMS.q_matrix, P_predict[0][0])
+
+        return (x_predict, P_predict)
+
+    def kf_update(self, measurement):
+        """ Perform Kalman filter update step
+        Input:
+            - measurement: the measurement (numpy array)
+            - cur_time: time when the measurement was taken (float)
+        Output:
+            -updated_x: updated state, numpy array with dimensions 
+            -updated_P: updated covariance, numpy array with dimensions 
+
+!!!!!!!!!PREDICTION HAS BEEN RUN AT THE BEGINNING OF TIME STEP FOR EVERY TARGET!!!!!!!!!
+        """
+
+        measurement = np.expand_dims(measurement, axis=1)
+
+        self_X = self.prior[0]
+        self_P = self.prior[1]
+        H = self.gen_params.h_matrix
+
+
+        S = np.dot(np.dot(H, self_P), H.T) + self.gen_params.r_matrix
+        K = np.dot(np.dot(self_P, H.T), matrix_inverse(S))
+        residual = measurement - np.dot(H, self_X)
+        # print '@'*20
+        # print "H:", H
+        # print "self_P:", self_P
+        # print "self.gen_params.r_matrix:", self.gen_params.r_matrix
+        # print
+        # print "np.dot(H, self_X)", np.dot(H, self_X)
+        # print "K.shape:", K.shape
+        # print "residual.shape:", residual.shape
+        # print "np.dot(H, self_X).shape:", np.dot(H, self_X).shape
+        # print "np.dot(K, residual).shape:", np.dot(K, residual).shape
+        # print 'measurement:', measurement
+        # print "self_X:", self_X
+        updated_x = self_X + np.dot(K, residual)
+        # print "updated_x:", updated_x
+    #   updated_self_P = np.dot((np.eye(self_P.shape[0]) - np.dot(K, H)), self_P) #NUMERICALLY UNSTABLE!!!!!!!!
+        updated_P = self_P - np.dot(np.dot(K, S), K.T) #not sure if this is numerically stable!!
+        assert(updated_P[0][0] > 0 and
+               updated_P[1][1] > 0 and
+               updated_P[2][2] > 0), (self_P, SPEC['R'], SPEC['USE_CONSTANT_R'], meas_noise_cov, K, updated_P)
+        return (updated_x, updated_P)
+
 
 def normalize(pdf):
     pdf /= np.sum(pdf)
     return pdf
 
 
-def discrete_bayes_update(likelihood, prior):
-    """ 
-    from https://github.com/rlabbe/filterpy/blob/master/filterpy/discrete_bayes/discrete_bayes.py
-    Computes the posterior of a discrete random variable given a
-    discrete likelihood and prior. In a typical application the likelihood
-    will be the likelihood of a measurement matching your current environment,
-    and the prior comes from discrete_bayes.predict().
-    Parameters
-    ----------
-    likelihood : (np.array with shape state_space_tuple)
-         array of likelihood values
-    prior : (np.array with shape previous_dependent_states_shape)
-        prior pdf.
-    Returns
-    -------
-    posterior : ndarray, dtype=float
-        Returns array representing the posterior.
-    Examples
-    --------
-    .. code-block:: Python
-        # self driving car. Sensor returns values that can be equated to positions
-        # on the road. A real likelihood compuation would be much more complicated
-        # than this example.
-        likelihood = np.ones(len(road))
-        likelihood[road==z] *= scale_factor
-        prior = predict(posterior, velocity, kernel)
-        posterior = update(likelihood, prior)
-    """
-    #prior and likelihood may not have shame shape (prior will have more dimensions when markov_order > 1),
-    #but element-wise multiplication in this case iterates over first dimension and multiplies to last dimensions as desired
-
-    posterior = prior * likelihood
-    return normalize(posterior)
-
-
 class Particle:
-    def __init__(self, parent_particle, generative_parameters, importance_weight=None, log_importance_weight_normalization=0.0):
+    def __init__(self, parent_particle, generative_parameters, log_importance_weight=None, log_importance_weight_normalization=0.0):
         '''
         Represents a sample of target states at one time step
         Inputs:
@@ -344,10 +301,11 @@ class Particle:
         #list of TargetStateNode's
         self.targets = []
 
-        if importance_weight is None:
-            self.importance_weight = 1.0/N_PARTICLES
+        if log_importance_weight is None:
+            self.log_importance_weight = np.log(1.0/N_PARTICLES)
         else:
-            self.importance_weight = importance_weight
+            self.log_importance_weight = log_importance_weight
+        self.importance_weight = np.exp(log_importance_weight)
 
         #log of the product of each importance weight normalization 
         self.log_importance_weight_normalization = log_importance_weight_normalization
@@ -355,10 +313,10 @@ class Particle:
         #GenerativeParameters object storing parameters used for data generation and inference
         self.generative_parameters = generative_parameters
 
-    def create_child_particle(self, child_imprt_weight, measurements, measurement_associations):
+    def create_child_particle(self, log_child_imprt_weight, measurements, measurement_associations):
         '''
         Inputs:
-        - child_imprt_weight: (float) the importance weight of the child particle
+        - log_child_imprt_weight: (float) the logarithm of the importance weight of the child particle
         - measurements: (list of measurements) contains measurements to update target states with
                         NOTE: this list of measurements should be passed in the same order to every
                         particle because particles may share targets and the measurement indices 
@@ -367,7 +325,7 @@ class Particle:
             specifies that the ith measurement in measurements should be used to update the jth
             target in self.targets
         '''
-        child_particle = Particle(parent_particle=self, generative_parameters=self.generative_parameters, importance_weight=child_imprt_weight,\
+        child_particle = Particle(parent_particle=self, generative_parameters=self.generative_parameters, log_importance_weight=log_child_imprt_weight,\
                                   log_importance_weight_normalization=self.log_importance_weight_normalization)
         assert(len(measurements) == len(measurement_associations))
         ITERATE_THROUGH_TARGETS_TO_PRESERVE_ORDER = True
@@ -391,6 +349,29 @@ class Particle:
 
         assert(len(child_particle.targets) == len(self.targets)), "currently assume all targets should be associated with a measurement, didn't happen!!"
         return child_particle
+
+    def get_log_likelihoods_over_time(self):
+        '''
+        Output:
+        - log_likelihoods: (list floats) log_likelihoods[i] is the log-likelihood of this particle at time-step i
+
+        '''      
+        log_likelihoods = []
+
+        if INITIAL_ASSOCIATIONS_KNOWN and self.parent_particle is None:
+            log_likelihoods = [self.log_importance_weight_normalization + np.log(self.importance_weight)]
+        elif not INITIAL_ASSOCIATIONS_KNOWN and self.parent_particle.parent_particle is None:
+            log_likelihoods = [self.log_importance_weight_normalization + np.log(self.importance_weight)]
+
+        # if self.parent_particle is None:
+        #     log_likelihoods = [self.log_importance_weight_normalization + np.log(self.importance_weight)]
+        else:
+            log_likelihoods = self.parent_particle.get_log_likelihoods_over_time()   
+            log_likelihoods.append(self.log_importance_weight_normalization + np.log(self.importance_weight))
+                    
+        return log_likelihoods
+
+
 
     def get_all_target_posteriors(self):
         '''
@@ -452,7 +433,7 @@ def gt_assoc_step(particle_set, cur_time_step_measurements):
     new_particle_set = []
     for sampled_association in sampled_associations:
         child_particle = particle_set[sampled_association.matrix_index].create_child_particle(\
-            child_imprt_weight=sampled_association.complete_assoc_probability,\
+            log_child_imprt_weight=np.log(sampled_association.complete_assoc_probability),\
             measurements=cur_time_step_measurements,\
             measurement_associations=sampled_association.meas_grp_associations)
 
@@ -477,6 +458,18 @@ def exact_sampling_step(particle_set, cur_time_step_measurements):
         probs = construct_exact_sampling_matrix_constantNumTargets(targets=particle.targets, measurements=cur_time_step_measurements)
         particle_prior_prob = particle.importance_weight
 
+        # try to help numerical issues, might not help
+        for row in range(probs.shape[0]):
+            max_row_val = np.max(probs[row])
+            probs[row] /= max_row_val
+            particle_prior_prob *= max_row_val
+        for col in range(probs.shape[1]):
+            max_col_val = np.max(probs[:,col])
+            probs[:,col] /= max_col_val
+            particle_prior_prob *= max_col_val            
+
+        # print "probs:"
+        # print probs
         # print "particle_prior_prob =", particle_prior_prob
         cur_a_matrix = associationMatrix(matrix=probs, M=M, T=T,\
             conditional_birth_probs=[0.0 for i in range(M)], conditional_death_probs=[0.0 for i in range(T)],\
@@ -488,8 +481,9 @@ def exact_sampling_step(particle_set, cur_time_step_measurements):
 
     new_particle_set = []
     for sampled_association in sampled_associations:
+        print "sampled_association.meas_grp_associations", sampled_association.meas_grp_associations, "log prob:", np.log(sampled_association.complete_assoc_probability)
         child_particle = particle_set[sampled_association.matrix_index].create_child_particle(\
-            child_imprt_weight=sampled_association.complete_assoc_probability,\
+            log_child_imprt_weight=np.log(sampled_association.complete_assoc_probability),\
             measurements=cur_time_step_measurements,\
             measurement_associations=sampled_association.meas_grp_associations)
 
@@ -504,7 +498,6 @@ def MHT_step(particle_set, cur_time_step_measurements, extra_assignments_to_find
     '''
     perform multiple hypothesis tracking
     '''
-
     M = len(cur_time_step_measurements) #number of measurements
     T = M #currently using a fixed number of targets that always emit measurements
 
@@ -519,13 +512,11 @@ def MHT_step(particle_set, cur_time_step_measurements, extra_assignments_to_find
 
     # print
     # print
-
     for particle in particle_set:
         #1. construct log probs matrix for particle GROUP
         cur_log_probs = construct_MHT_matrix(targets=particle.targets, measurements=cur_time_step_measurements)
         log_prob_matrices.append(cur_log_probs) #store to calculate probabilities later
-        assert((cur_log_probs <= .000001).all()), (cur_log_probs)
-
+        # assert((cur_log_probs <= .000001).all()), (cur_log_probs)
         cur_cost_matrix = -1*cur_log_probs #k_best_assign_mult_cost_matrices is set up to find minimum cost, not max log prob
         
         cur_min_cost = np.min(cur_cost_matrix)
@@ -551,6 +542,8 @@ def MHT_step(particle_set, cur_time_step_measurements, extra_assignments_to_find
     #best_assignments[i][2] is the index in the input cost_matrices of the cost matrix used
     #for the ith best assignment
     best_assignments = k_best_assign_mult_cost_matrices(N_PARTICLES*extra_assignments_to_find_factor, perturbed_cost_matrices, particle_costs, M)
+    # print "len(best_assignments): ", len(best_assignments)
+
 
     #5. For each of the most likely assignments, create a new particle that is a copy of its particle GROUP, 
     # and associate measurements / kill targets according to assignment.
@@ -558,7 +551,6 @@ def MHT_step(particle_set, cur_time_step_measurements, extra_assignments_to_find
     for (idx, (cur_cost, cur_assignment, cur_particle_idx)) in enumerate(best_assignments):
         assert(cur_cost >= prv_cost or np.allclose(cur_cost, prv_cost)), (cur_cost, prv_cost, idx) #make sure costs are decreasing in best_assignments
         prv_cost = cur_cost
-        assert(cur_cost < INFEASIBLE_COST)
         #3. create a new particle that is a copy of the max group, and associate measurements / kill
         #targets according to the max x_k from 2.
         cur_assignment_matrix = convert_assignment_pairs_to_matrix3(cur_assignment, M, T)
@@ -598,7 +590,7 @@ def MHT_step(particle_set, cur_time_step_measurements, extra_assignments_to_find
         (meas_grp_associations, dead_target_indices) = convert_assignment_matrix3(cur_assignment_matrix, M, T)
         assert(len(dead_target_indices) == 0), "current implementation assumes constant # targets"
         child_particle = particle_set[cur_particle_idx].create_child_particle(\
-            child_imprt_weight=np.exp(new_particle_log_importance_weight),\
+            log_child_imprt_weight=new_particle_log_importance_weight,\
             measurements=cur_time_step_measurements,\
             measurement_associations=meas_grp_associations)
 
@@ -610,21 +602,41 @@ def MHT_step(particle_set, cur_time_step_measurements, extra_assignments_to_find
     return new_particle_set
 
 
-def normalize_importance_weights(particle_set):
-    # print 'HI!!!'
-    #normalize importance weights so all importance weights in the particle set sum to 1.0
-    normalization_constant = 0.0
-    for particle in particle_set:
-        # print("particle.importance_weight:", particle.importance_weight)
-        normalization_constant += particle.importance_weight
-    assert(normalization_constant != 0.0), normalization_constant
-    # print("normalize_importance_weights called, normalization_constant =", normalization_constant)
-    importance_weight_sum = 0.0
-    for particle in particle_set:
-        particle.importance_weight /= normalization_constant
-        particle.log_importance_weight_normalization += np.log(normalization_constant)
-        importance_weight_sum += particle.importance_weight
-    assert(np.isclose(importance_weight_sum, 1, rtol=1e-04, atol=1e-04)), importance_weight_sum
+def normalize_importance_weights(particle_set, normalize_log_weights=True):
+    if normalize_log_weights:
+        largest_log_imprt_weight = -np.inf
+        for particle in particle_set:
+            if particle.log_importance_weight > largest_log_imprt_weight:
+                largest_log_imprt_weight = particle.log_importance_weight
+
+        #normalize importance weights so all importance weights in the particle set sum to 1.0
+        normalization_constant = 0.0
+        for particle in particle_set:
+            normalization_constant += np.exp(particle.log_importance_weight - largest_log_imprt_weight)
+        assert(normalization_constant != 0.0), normalization_constant
+        # print("normalize_importance_weights called, normalization_constant =", normalization_constant)
+        importance_weight_sum = 0.0
+        for particle in particle_set:
+            particle.importance_weight = np.exp(particle.log_importance_weight - largest_log_imprt_weight)/normalization_constant
+            # particle.log_importance_weight_normalization += np.log(normalization_constant*np.exp(largest_log_imprt_weight))
+            particle.log_importance_weight_normalization += np.log(normalization_constant) + largest_log_imprt_weight
+            importance_weight_sum += particle.importance_weight
+        assert(np.isclose(importance_weight_sum, 1, rtol=1e-04, atol=1e-04)), importance_weight_sum
+
+    else:
+        #normalize importance weights so all importance weights in the particle set sum to 1.0
+        normalization_constant = 0.0
+        for particle in particle_set:
+            # print("particle.importance_weight:", particle.importance_weight)
+            normalization_constant += particle.importance_weight
+        assert(normalization_constant != 0.0), normalization_constant
+        # print("normalize_importance_weights called, normalization_constant =", normalization_constant)
+        importance_weight_sum = 0.0
+        for particle in particle_set:
+            particle.importance_weight /= normalization_constant
+            particle.log_importance_weight_normalization += np.log(normalization_constant)
+            importance_weight_sum += particle.importance_weight
+        assert(np.isclose(importance_weight_sum, 1, rtol=1e-04, atol=1e-04)), importance_weight_sum
 
 def convert_measurements_by_target_to_by_time(all_measurements, randomize_order=False):
     '''
@@ -648,19 +660,34 @@ def convert_measurements_by_target_to_by_time(all_measurements, randomize_order=
         all_measurements_by_time.append(cur_time_measurements) 
     return all_measurements_by_time
 
-def get_gt_likelihood(gen_params, all_measurements):
+def get_gt_association_likelihood(gen_params, all_measurements):
+    '''
+    Outputs:
+    - all_log_likelihoods: (list of floats) all_log_likelihoods[i] is the ground truth log likelihood at the ith timestep
+    '''
     log_prob_of_all_targets = 0
-    print 'get_gt_likelihood called'
+    all_log_likelihoods = None
     for target_idx in range(gen_params.num_targets):
-        cur_gen_params = generate_data.GenerativeParameters(gen_params.num_time_steps, gen_params.state_space, \
-            gen_params.previous_dependent_states_shape, gen_params.all_initial_state_probabilities[target_idx:target_idx+1], \
-            gen_params.transition_probabilities[target_idx:target_idx+1], gen_params.emission_probabilities[target_idx:target_idx+1], \
-            gen_params.markov_order, gen_params.num_targets)
         with io.capture_output() as captured:
-            (all_target_posteriors, all_target_priors, most_probable_particle) = run_tracking([all_measurements[target_idx]], tracking_method='MHT', generative_parameters=cur_gen_params, n_particles=1, use_group_particles='False')
-        log_prob_of_all_targets += most_probable_particle.log_importance_weight_normalization + np.log(most_probable_particle.importance_weight)
-        print(most_probable_particle.log_importance_weight_normalization + np.log(most_probable_particle.importance_weight))
-    return log_prob_of_all_targets
+            cur_gen_params = copy.copy(gen_params)
+            cur_gen_params.initial_position_means = [gen_params.initial_position_means[target_idx]]
+            cur_gen_params.spring_constants = [gen_params.spring_constants[target_idx]]
+            (all_target_posteriors, all_target_priors, most_probable_particle, cur_target_all_log_likelihoods, log_likelihoods_from_most_probable_particles) = run_tracking([all_measurements[target_idx]], tracking_method='MHT', generative_parameters=cur_gen_params, n_particles=1, use_group_particles='False')
+            if all_log_likelihoods is None:
+                all_log_likelihoods = cur_target_all_log_likelihoods
+            else:
+                assert(len(all_log_likelihoods) == len(cur_target_all_log_likelihoods))
+                for idx, ll in enumerate(cur_target_all_log_likelihoods):
+                    all_log_likelihoods[idx] += ll[0]
+            print "all_log_likelihoods    :", all_log_likelihoods                        
+            log_prob_of_all_targets += most_probable_particle.log_importance_weight_normalization + np.log(most_probable_particle.importance_weight)
+            print(most_probable_particle.log_importance_weight_normalization + np.log(most_probable_particle.importance_weight))
+
+    print "log_prob_of_all_targets:", log_prob_of_all_targets
+    print "all_log_likelihoods    :", all_log_likelihoods    
+
+    assert(log_prob_of_all_targets == all_log_likelihoods[-1])
+    return log_prob_of_all_targets, all_log_likelihoods
 
 
 def run_tracking(all_measurements, tracking_method, generative_parameters, n_particles, use_group_particles):
@@ -668,7 +695,6 @@ def run_tracking(all_measurements, tracking_method, generative_parameters, n_par
     Measurement class designed to only have 1 measurement/time instance
     Input:
     - all_measurements: (list of list of measurements) all_measurements[i][j] is the ith target's measurement at the jth time instance
-        NOTE: all_measurements[0] should be in the same order as all_initial_state_probabilities so that each target has the correct prior
     - tracking_method: (string) either 'exact_sampling' or 'MHT'
     - generative_parameters: (GenerativeParameters) object storing parameters used for data generation and inference
     - n_particles: (int) the number of particles (samples) used in exact sampling or hypotheses in multiple hypothesis tracking
@@ -679,91 +705,118 @@ def run_tracking(all_measurements, tracking_method, generative_parameters, n_par
     Output:
     - all_target_posteriors: (list of list of np.array's) all_target_posteriors[i][j] is the posterior distribution of the 
                          ith target's state at the jth time step
+    - all_log_likelihoods: (list of list of floats) all_log_likelihoods[i][j] is the jth sample's (or hypotheses') log likelihood
+                           at the ith time step                         
     """
     global N_PARTICLES
     N_PARTICLES = n_particles
-    single_initial_particle = Particle(parent_particle=None, generative_parameters=generative_parameters, importance_weight=1.0)
+
+    global GEN_PARAMS 
+    GEN_PARAMS = generative_parameters
+
+    single_initial_particle = Particle(parent_particle=None, generative_parameters=generative_parameters, log_importance_weight=1.0)
     all_measurements_by_time = convert_measurements_by_target_to_by_time(all_measurements=all_measurements)
     print "all_measurements_by_time:"
     print all_measurements_by_time
 
-    initial_associations_unknown=True
-    if initial_associations_unknown:
-        T = len(all_measurements_by_time[0]) #number of targets
-        for target_idx in range(T):
-            root_target_node = TargetStateNode(gen_params=generative_parameters, parent_node=None, target_idx=target_idx)            
-            root_target_node.initialize_root_target_unknown_association(target_idx=target_idx)
-            single_initial_particle.targets.append(root_target_node)
-        particle_set = [single_initial_particle]
-
-        for target in particle_set[0].targets:
-            print("check prior initialized with max =", np.max(target.prior), "at index", np.argmax(target.prior))
+    #set false for varying spring constants
+    global INITIAL_ASSOCIATIONS_KNOWN
+    INITIAL_ASSOCIATIONS_KNOWN = False
 
 
-        for cur_time_step_measurements in all_measurements_by_time:    
-            if tracking_method == 'exact_sampling':
-                particle_set = exact_sampling_step(particle_set, cur_time_step_measurements)
-            elif tracking_method == 'MHT':
-                particle_set = MHT_step(particle_set, cur_time_step_measurements, extra_assignments_to_find_factor=1)
-            elif tracking_method == 'gt_assoc':
-                particle_set = gt_assoc_step(particle_set, cur_time_step_measurements)
-            else:
-                assert(False)
-               
-            normalize_importance_weights(particle_set)
-            print "len(particle_set) before grouping particles:",len(particle_set)
+    T = len(all_measurements_by_time[0]) #number of targets
+    for target_idx in range(T):
+        root_target_node = TargetStateNode(gen_params=generative_parameters, parent_node=None, target_idx=target_idx)            
+        if INITIAL_ASSOCIATIONS_KNOWN:
+            root_target_node.initialize_root_target_initialAssociationKnown(measurement=all_measurements_by_time[0][target_idx], target_idx=target_idx)
+        else:
+            root_target_node.initialize_root_target_initialAssociationNotKnown(target_idx=target_idx)
+        single_initial_particle.targets.append(root_target_node)
+    particle_set = [single_initial_particle]
 
-            if use_group_particles:
-                # particle_set = group_particles(particle_set)
-                grouped_particle_set = []
-                for extra_idx in range(1):
-                    print "extra_idx:", extra_idx, "len(grouped_particle_set):", len(grouped_particle_set)
-                    grouped_particle_set = group_particles(grouped_particle_set + particle_set[extra_idx*N_PARTICLES:(extra_idx+1)*N_PARTICLES])
-
-                    if len(grouped_particle_set) >= N_PARTICLES:
-                        break
-
-                particle_set = grouped_particle_set[:N_PARTICLES]
-                print "len(particle_set) after grouping particles:",len(particle_set)
-
+    time_step=1
+    if INITIAL_ASSOCIATIONS_KNOWN:
+        remaining_measurements_by_time = all_measurements_by_time[1:]
     else:
-        for target_idx, cur_measurment in enumerate(all_measurements_by_time[0]):
-            root_target_node = TargetStateNode(gen_params=generative_parameters, parent_node=None, target_idx=target_idx)
-            root_target_node.initialize_root_target_with_known_association(measurement=cur_measurment, target_idx=target_idx)
-            single_initial_particle.targets.append(root_target_node)
-        particle_set = [single_initial_particle]
+        remaining_measurements_by_time = all_measurements_by_time
 
-        for cur_time_step_measurements in all_measurements_by_time[1:]:    
-            if tracking_method == 'exact_sampling':
-                particle_set = exact_sampling_step(particle_set, cur_time_step_measurements)
-            elif tracking_method == 'MHT':
-                particle_set = MHT_step(particle_set, cur_time_step_measurements)
-            elif tracking_method == 'gt_assoc':
-                particle_set = gt_assoc_step(particle_set, cur_time_step_measurements)
-            else:
-                assert(False)
-               
-            normalize_importance_weights(particle_set)
-            if use_group_particles:
-                particle_set = group_particles(particle_set)
+    all_log_likelihoods = []
+    for cur_time_step_measurements in remaining_measurements_by_time:    
+        print '-'*40, 'timestep', time_step, '-'*40
+        time_step += 1
+        if tracking_method == 'exact_sampling':
+            particle_set = exact_sampling_step(particle_set, cur_time_step_measurements)
+        elif tracking_method == 'MHT':
+            particle_set = MHT_step(particle_set, cur_time_step_measurements, extra_assignments_to_find_factor=1)
+        elif tracking_method == 'gt_assoc':
+            particle_set = gt_assoc_step(particle_set, cur_time_step_measurements)
+        else:
+            assert(False)
+           
+        normalize_importance_weights(particle_set)
+        print "len(particle_set) before grouping particles:",len(particle_set)
+
+        if use_group_particles:
+            # particle_set = group_particles(particle_set)
+            grouped_particle_set = []
+            for extra_idx in range(1):
+                print "extra_idx:", extra_idx, "len(grouped_particle_set):", len(grouped_particle_set)
+                grouped_particle_set = group_particles(grouped_particle_set + particle_set[extra_idx*N_PARTICLES:(extra_idx+1)*N_PARTICLES])
+
+                if len(grouped_particle_set) >= N_PARTICLES:
+                    break
+
+            particle_set = grouped_particle_set[:N_PARTICLES]
+            print "len(particle_set) after grouping particles:",len(particle_set)
+
+
+
+        PRINT_CUR_LOG_LIKELIHOOD = True
+        if PRINT_CUR_LOG_LIKELIHOOD:
+            cur_time_step_log_likelihoods = []
+            cur_most_probable_particle = None
+            first_particle_log_importance_weight_normalization = None
+            for particle in particle_set:
+                cur_time_step_log_likelihoods.append(particle.log_importance_weight_normalization + np.log(particle.importance_weight))
+                if first_particle_log_importance_weight_normalization is None:
+                    first_particle_log_importance_weight_normalization = particle.log_importance_weight_normalization
+                else:
+                    assert(first_particle_log_importance_weight_normalization == particle.log_importance_weight_normalization)
+                if cur_most_probable_particle is None or particle.importance_weight > cur_most_probable_particle.importance_weight:
+                    cur_most_probable_particle = particle
+            all_log_likelihoods.append(cur_time_step_log_likelihoods)
+            print("current most probable particle log_prob:", cur_most_probable_particle.log_importance_weight_normalization + np.log(cur_most_probable_particle.importance_weight))
+
+            cur_least_probable_particle = None
+            for particle in particle_set:
+                if cur_least_probable_particle is None or particle.importance_weight < cur_least_probable_particle.importance_weight:
+                    cur_least_probable_particle = particle
+
+            print("current least probable particle log_prob:", cur_least_probable_particle.log_importance_weight_normalization + np.log(cur_least_probable_particle.importance_weight))
+
 
     #we sample without replacement with exact sampling, so just find the highest weight sample, no marginalization
     most_probable_particle = None
+    log_likelihoods_from_most_probable_particles = []
     for particle in particle_set:
+        cur_particle_log_likelihoods = particle.get_log_likelihoods_over_time()
+        log_likelihoods_from_most_probable_particles.append(cur_particle_log_likelihoods)
         if most_probable_particle is None or particle.importance_weight > most_probable_particle.importance_weight:
             most_probable_particle = particle
     all_target_posteriors = most_probable_particle.get_all_target_posteriors()
     all_target_priors = most_probable_particle.get_all_target_priors()
 
-    return (all_target_posteriors, all_target_priors, most_probable_particle)
+    return (all_target_posteriors, all_target_priors, most_probable_particle, all_log_likelihoods, log_likelihoods_from_most_probable_particles)
 
-def distribution_distance_metric(distributionA, distributionB):
+def target_distance_metric(targetA, targetB):
     '''
-    For each discrete element compute the difference between probabilities for distributionA and distributionB
-    and divide by the larger of the two probabilties.  Return the largest of these values over all elements
+    *** may not be a valid distance metric ***
+    define distance between two targets
     '''
-    # return np.max(np.abs(distributionA-distributionB)/np.maximum(distributionA,distributionB))
-    return np.max(np.abs(distributionA-distributionB))
+    distance = np.sum((targetA.posterior[0] - targetB.posterior[0])**2) \
+             + np.sum((targetA.posterior[1] - targetB.posterior[1])**2) \
+             + (targetA.spring_constant - targetB.spring_constant)**2
+    return distance
 
 def min_cost_assignment(cost_matrix):
     '''
@@ -778,7 +831,7 @@ def min_cost_assignment(cost_matrix):
     association_list = zip([i for i in range(len(solution))], solution)
     return association_list
 
-def particles_are_similar(particleA, particleB, distance_threshold=.01):
+def particles_are_similar(particleA, particleB, distance_threshold=.1):
     '''
     During tracking we maintain a particle set where each particle represents a unique set of measurement target associations 
     throughout time.  However, it's possible that two particles could differ only in an association that took place long ago
@@ -795,7 +848,7 @@ def particles_are_similar(particleA, particleB, distance_threshold=.01):
     cost_matrix = np.zeros((T,T))
     for a_idx, targetA in enumerate(particleA.targets):
         for b_idx, targetB in enumerate(particleB.targets):
-            cost_matrix[a_idx, b_idx] = distribution_distance_metric(targetA.posterior, targetB.posterior)
+            cost_matrix[a_idx, b_idx] = target_distance_metric(targetA, targetB)
 
     #2. find the minimum cost matching between particle A's targets and particle B's targets
     min_cost_association_list = min_cost_assignment(cost_matrix)
@@ -915,12 +968,45 @@ def group_particles(particle_set, verbose=False):
     return grouped_particle_set
 
 
-def get_assoc_likelihood(target, measurement):
-    # print "target.get_likelihood(measurement):", target.get_likelihood(measurement)
-    # print "target.prior:", target.prior
 
-    association_likelihood = np.sum(target.prior * target.get_likelihood(measurement)) #element wise product, then sum elements
-    return association_likelihood
+def get_assoc_likelihood(target, measurement):
+    """
+    Inputs:
+    """
+    global GEN_PARAMS
+
+    R = GEN_PARAMS.r_matrix
+    H = GEN_PARAMS.h_matrix
+
+    target_X = target.prior[0]
+    target_P = target.prior[1]
+
+    S = np.dot(np.dot(H, target_P), H.T) + R
+    assert(target_X.shape == (3, 1)), (target_X.shape, target_X)
+
+
+    state_mean_meas_space = np.dot(H, target_X)
+    state_mean_meas_space = np.squeeze(state_mean_meas_space)
+
+    use_python_gaussian = True
+    if use_python_gaussian:
+        distribution = multivariate_normal(mean=state_mean_meas_space, cov=S)
+        assoc_likelihood = distribution.pdf(measurement)
+    else: #probably not correct for the current state space size
+        S_det = S[0][0]*S[1][1] - S[0][1]*S[1][0] # a little faster
+        S_inv = matrix_inverse(S)
+        assert(S_det > 0), (S_det, S, target_P, R)
+        LIKELIHOOD_DISTR_NORM = 1.0/math.sqrt((2*math.pi)**2*S_det)
+
+        offset = measurement - state_mean_meas_space
+        a = -.5*np.dot(np.dot(offset, S_inv), offset)
+        assoc_likelihood = LIKELIHOOD_DISTR_NORM*math.exp(a)
+
+    # assert(assoc_likelihood >= 0.0 and assoc_likelihood <= 1.0), (assoc_likelihood, state_mean_meas_space, S, measurement)
+
+    return assoc_likelihood
+
+
 
 def construct_exact_sampling_matrix(targets, measurements):
     '''
@@ -1056,8 +1142,16 @@ def construct_MHT_matrix(targets, measurements):
     T = len(targets)
     assert(M==T)
     log_probs = np.ones((2*M + 2*T, 2*T + 2*M))
-    # log_probs *= -1*INFEASIBLE_COST #setting all entries to very negative value
     log_probs *= -np.inf #setting all entries to very negative value
+
+    # print 'target state means:'
+    # for target in targets:
+    #     print target.prior[0][0],
+    # print
+    # print 'measurements:'
+    # for measurement in measurements:
+    #     print measurement,
+    # print
 
 
     for t_idx, target in enumerate(targets):
@@ -1072,39 +1166,73 @@ def construct_MHT_matrix(targets, measurements):
         for col_idx in range(T, 2*T+2*M):
             log_probs[row_idx][col_idx] = 0.0
 
+    # print "log_probs:", log_probs
 
     return log_probs
 
 
+def plot_generated_data(all_xs, all_zs):
+    ######################## PLOT DATA ########################
+    for target_idx in range(gen_params.num_targets):
+        xs = all_xs[target_idx]
+        zs = all_zs[target_idx]
+        print "states:", [x[0] for x in xs]
+        plt.plot([x[0] for x in xs], label='states', marker='+', linestyle="None")
+        print "measurements:", zs
+        plt.plot([z[0] for z in zs], label='measurements', marker='x', linestyle="None")
+#     plt.ylabel('some numbers')
+    plt.legend()
+    plt.show()
+
 
 if __name__ == "__main__":
-    np.random.seed(0)
+    np.random.seed(3)
 
+    N_PARTICLES = 1
+    use_group_particles = False
+    # method = 'exact_sampling'
+    method = 'MHT'
 
-    num_time_steps = 4
-    state_space = np.array((20))
-    measurement_space = np.array((20))
-    markov_order = 1
-    num_targets = 10
+    # (all_states, all_measurements, gen_params) = generate_data.get_parameters_and_data(num_time_steps=30, num_targets=15,\
+    #                                   initial_position_variance=500, initial_vel_variance=0, measurement_variance=.01, spring_k=15, dt=.1)
 
-    N_PARTICLES = 50
-    use_group_particles = True
-    method = 'exact_sampling'
-    # method = 'MHT'
+    num_time_steps=20
+    num_targets=7
+    initial_position_means=[10*np.random.rand() for i in range(num_targets)]
+    initial_position_variance=6
+    initial_vel_variance=30
+    measurement_variance=1
+    spring_constants=[100*np.random.rand() for i in range(num_targets)]
+    dt=.1
 
-    (all_states, all_measurements, gen_params) = generate_data.get_parameters_and_data(num_time_steps, state_space,\
-        measurement_space, markov_order, num_targets)
+    (all_states, all_measurements, gen_params) = generate_data.get_parameters_and_data(num_time_steps, num_targets, \
+        initial_position_means, initial_position_variance, initial_vel_variance, measurement_variance, spring_constants, dt)
 
     # with io.capture_output() as captured:
-    (all_target_posteriors, all_target_priors, most_probable_particle) = run_tracking(all_measurements, tracking_method=method, generative_parameters=gen_params, n_particles=N_PARTICLES, use_group_particles=use_group_particles)
+    # gen_params.num_targets = 1
+    # all_measurements = all_measurements[0:1]
+    (all_target_posteriors, all_target_priors, most_probable_particle, all_log_likelihoods, log_likelihoods_from_most_probable_particles) = run_tracking(all_measurements, tracking_method=method, generative_parameters=gen_params, n_particles=N_PARTICLES, use_group_particles=use_group_particles)
 
     print("most_probable_particle.importance_weight:", most_probable_particle.importance_weight)
     print("most_probable_particle.log_importance_weight_normalization:", most_probable_particle.log_importance_weight_normalization)
     print("most probable particle log_prob:", most_probable_particle.log_importance_weight_normalization + np.log(most_probable_particle.importance_weight))
     print("most probable particle prob:", np.exp(most_probable_particle.log_importance_weight_normalization + np.log(most_probable_particle.importance_weight)))
 
-    print("ground truth, log_prob_of_all_targets =", get_gt_likelihood(gen_params, all_measurements))
+    print("ground truth, log_prob_of_all_targets =", get_gt_association_likelihood(gen_params, all_measurements))
 
-
-
+    plot_generated_data(all_states, all_measurements)
+    ######################## PLOT DATA ########################
+    for target_idx in range(gen_params.num_targets):
+        print 'hi!'
+        xs = all_target_posteriors[target_idx]
+        # print "states:", [x[0,0] for x in xs]
+        plt.plot(xs, label='inferred states', marker='+', linestyle="None")
+        plt.plot([x[0] for x in all_states[target_idx]], label='true states', marker='x', linestyle="None")
+        plt.plot([z[0] for z in all_measurements[target_idx]], label='measurements', marker='+', linestyle="None")
+    #     plt.ylabel('some numbers')
+        plt.title('%s target %d' % (method, target_idx))
+        plt.legend()
+        # plt.show()
+        plt.savefig('%s target %d' % (method, target_idx))
+        plt.close()
 
