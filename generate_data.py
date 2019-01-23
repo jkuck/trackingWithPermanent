@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from collections import deque
 
 class GenerativeParameters:
-    def __init__(self, num_time_steps, num_targets, initial_position_means, initial_position_variance, initial_vel_variance, measurement_variance, spring_constants, dt):
+    def __init__(self, num_time_steps, num_targets, initial_position_means, initial_velocity_means, initial_position_variance, initial_vel_variance, measurement_variance, spring_constants, dt):
         '''
         Parameters used to generate data
         Inputs:
@@ -11,10 +11,12 @@ class GenerativeParameters:
         - num_targets: (int) the number of targets
         - initial_position_means: (list of floats) the initial position of target i is sampled from a gaussian
                                   with mean initial_position_means[i] and variance initial_position_variance
+        - initial_velocity_means: (list of floats) the initial velocity of target i is sampled from a gaussian
+                                  with mean initial_velocity_means[i] and variance initial_vel_variance
         - initial_position_variance: (float) the initial position of target i is sampled from a gaussian
                                   with mean initial_position_means[i] and variance initial_position_variance       
-        - initial_vel_variance: (float) the initial velocity of each target is sampled from a gaussian with mean
-                                0 and variance initial_vel_variance        
+        - initial_vel_variance: (float) the initial velocity of target i is sampled from a gaussian
+                                  with mean initial_velocity_means[i] and variance initial_vel_variance 
         - measurement_variance: (float) measurements are sampled from a gaussian with mean of the true target
                                 location and variance measurement_variance
         - spring_constants: (list of floats) spring_constants[i] is the  spring constant for target i, acceleration = -spring_constants[i]*x (mass = 1)
@@ -26,6 +28,7 @@ class GenerativeParameters:
         self.dt = dt
 
         self.initial_position_means = initial_position_means
+        self.initial_velocity_means = initial_velocity_means
         self.initial_position_variance = initial_position_variance
         self.initial_vel_variance = initial_vel_variance
         self.measurement_variance = measurement_variance
@@ -38,9 +41,9 @@ class GenerativeParameters:
                                   [0, 9999999.0]])    
         
         #covariance of the process noise
-        self.q_matrix = np.array([[0.0, 0.0, 0.0],
-                                  [0.0, 0.0, 0.0],
-                                  [0.0, 0.0, 0.0]])
+        self.q_matrix = np.array([[0.03, 0.0, 0.0],
+                                  [0.0, 0.03, 0.0],
+                                  [0.0, 0.0, 0.03]])
         
         # self.q_matrix = np.array([[1.0, 0.0, 0.0],
         #                           [0.0, 1.0, 0.0],
@@ -54,7 +57,7 @@ class GenerativeParameters:
         self.h_matrix = np.array([[1.0,  0.0, 0.0],
                                   [0.0,  1.0, 0.0]])
 
-def get_parameters_and_data(num_time_steps, num_targets, initial_position_means, initial_position_variance,\
+def get_parameters_and_data(num_time_steps, num_targets, initial_position_means, initial_velocity_means, initial_position_variance,\
                             initial_vel_variance, measurement_variance, spring_constants, dt):
     '''
     High level function that generates data and the parameters used to generate the data
@@ -70,6 +73,7 @@ def get_parameters_and_data(num_time_steps, num_targets, initial_position_means,
 
     #generate the actual data
     gen_params = GenerativeParameters(num_time_steps=num_time_steps, num_targets=num_targets, initial_position_means=initial_position_means,\
+                                      initial_velocity_means=initial_velocity_means,\
                                       initial_position_variance=initial_position_variance, initial_vel_variance=initial_vel_variance,\
                                       measurement_variance=measurement_variance, spring_constants=spring_constants, dt=dt)
 
@@ -123,7 +127,7 @@ def generate_single_target_data(gen_params, target_idx):
     #sample the initial state and measurement
 
     initial_position = np.random.normal(loc=gen_params.initial_position_means[target_idx], scale=np.sqrt(gen_params.initial_position_variance))
-    initial_velocity = np.random.normal(loc=0.0, scale=np.sqrt(gen_params.initial_vel_variance))
+    initial_velocity = np.random.normal(loc=gen_params.initial_velocity_means[target_idx], scale=np.sqrt(gen_params.initial_vel_variance))
     k = gen_params.spring_constants[target_idx]    
     # initial_velocity = 0
     # x1 = np.array([[                     initial_position],
@@ -195,6 +199,7 @@ if __name__ == "__main__":
 
     gen_params = GenerativeParameters(num_time_steps=100, num_targets=num_targets,\
                                       initial_position_means=[40*np.random.rand() for i in range(num_targets)],\
+                                      initial_velocity_means=[10*np.random.rand() for i in range(num_targets)],\
                                       # initial_position_means=[20*np.random.rand() for i in range(num_targets)],\
                                       initial_position_variance=20, initial_vel_variance=30, measurement_variance=1,\
                                       spring_constants=[100*np.random.rand() for i in range(num_targets)], dt=.01)

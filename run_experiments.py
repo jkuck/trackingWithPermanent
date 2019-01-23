@@ -24,7 +24,7 @@ def find_min_cost(cost_matrix):
         minimum_cost += np.asscalar(cost_matrix[row][col])
     return (association_list, minimum_cost)
 
-def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_position_means, initial_position_variance, initial_vel_variance, measurement_variance, spring_constants, dt):
+def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_position_means, initial_velocity_means, initial_position_variance, initial_vel_variance, measurement_variance, spring_constants, dt):
     # (all_states, all_measurements, gen_params) = generate_data.get_parameters_and_data(num_time_steps, state_space, measurement_space,
     #   markov_order, num_targets)
 
@@ -32,11 +32,19 @@ def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_posit
     #   markov_order, num_targets)
 
     (all_states, all_measurements, gen_params) = generate_data.get_parameters_and_data(num_time_steps, num_targets, \
-        initial_position_means, initial_position_variance, initial_vel_variance, measurement_variance, spring_constants, dt)
+        initial_position_means, initial_velocity_means, initial_position_variance, initial_vel_variance, measurement_variance, spring_constants, dt)
+
 
 
     # experiment_name = 'velocityInMeas_%dtargets_seed=%d_10k' % (num_targets, SEED)
-    experiment_name = 'varySpringConstants301_%dtargets_seed=%d' % (num_targets, SEED)
+    # experiment_name = 'varySpringConstants309_%dtargets_seed=%d' % (num_targets, SEED)
+    # experiment_name = 'moreDEBUGCHECK_%dtargets_seed=%d' % (num_targets, SEED)
+
+    # experiment_name = 'fixImportanceWeightParticleFilter_noResample_noSlackTightening_estimatePermanent_%dtargets_seed=%d' % (num_targets, SEED)
+    experiment_name = 'fixImportanceWeightParticleFilter_noResample_DEBUG_estimatePermanent_%dtargets_seed=%d' % (num_targets, SEED)
+
+   # experiment_name = 'fixImportanceWeightParticleFilter_noResample_estimatePermanent_%dtargets_seed=%d' % (num_targets, SEED)
+    # experiment_name = 'fixImportanceWeightParticleFilter1ResampleALot_%dtargets_seed=%d' % (num_targets, SEED)
     experiment_folder = './' + experiment_name + '/'
     if not os.path.isdir(experiment_folder):
         os.mkdir(experiment_folder)
@@ -54,14 +62,32 @@ def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_posit
     print "gen_params.num_time_steps:", gen_params.num_time_steps
     print "gen_params.num_targets:", gen_params.num_targets
     print "gen_params.initial_position_means:", gen_params.initial_position_means
+    print "gen_params.initial_velocity_means:", gen_params.initial_velocity_means
     print "gen_params.initial_position_variance:", gen_params.initial_position_variance
     print "gen_params.initial_vel_variance:", gen_params.initial_vel_variance
     print "gen_params.measurement_variance:", gen_params.measurement_variance
     print "gen_params.spring_constants:", gen_params.spring_constants
     print "gen_params.r_matrix:", gen_params.r_matrix    
     sys.stdout = std_out
-    f.write('ground truth log_likelihood = %f\n' % gt_likelihood)
+    f.write('ground truth log_likelihood = %f, should also be %f\n' % (gt_likelihood, gt_all_log_likelihoods[-1]))
     f.close()
+
+    ######################## PLOT GROUND TRUTH TRAJECTORIES IN ONE FIGURE ########################
+    for target_idx in range(gen_params.num_targets):
+        xs = all_states[target_idx]
+        zs = all_measurements[target_idx]
+        # print "states:", [x[1] for x in xs]
+        plt.plot([x[0] for x in xs], label='states %d' % target_idx, marker='+', linestyle="None")
+        # print "measurements:", zs
+        # plt.plot([z[0] for z in zs], label='measurements %d' % target_idx, marker='x', linestyle="None")
+#     plt.ylabel('some numbers')
+    plt.legend()
+    plt.title('Ground Truth Trajectories')
+    plt.ylabel('position')                
+    plt.xlabel('time step')
+    plt.savefig(experiment_folder  + 'ground_truth_trajectories')
+    plt.show()
+    plt.close()
 
 
     # for (n_particles, method) in [(10, 'MHT'), (10, 'exact_sampling')]:
@@ -69,8 +95,17 @@ def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_posit
     # for (n_particles, method) in [(100, 'exact_sampling'), (90, 'exact_sampling'), (100, 'exact_sampling'), (10, 'MHT'), (100, 'MHT'), (500, 'MHT'), (1000, 'MHT'), (5000, 'MHT'), (10000, 'exact_sampling'), (20000, 'exact_sampling'), (20, 'exact_sampling'), (50, 'exact_sampling'),]:
     #for (n_particles, method) in [(10, 'exact_sampling'), (10, 'MHT'), (100, 'MHT'), (500, 'MHT'), (1000, 'MHT'), (5000, 'MHT'), (10000, 'MHT'), (20000, 'MHT'), (20, 'exact_sampling')]:
     
-    # for (n_particles, method) in [(100, 'exact_sampling'), (100, 'MHT'), (20, 'MHT')]:
-    for (n_particles, method) in [(100, 'MHT'), (20, 'MHT')]:
+    for (n_particles, method) in [(11, 'MHT'), (100, 'MHT')]:
+    # for (n_particles, method) in [(10, 'exact_sampling'), (11, 'exact_sampling'), (12, 'exact_sampling'), (13, 'exact_sampling'), (100, 'exact_sampling'), (200, 'exact_sampling'), (500, 'exact_sampling'), (1000, 'exact_sampling'), (10000, 'exact_sampling')]:
+    # for (n_particles, method) in [(11, 'exact_sampling'), (12, 'exact_sampling'), (13, 'exact_sampling'), (14, 'exact_sampling')]:
+
+    # for (n_particles, method) in [(10, 'MHT'), (100, 'MHT'), (200, 'MHT'), (500, 'MHT'), (1000, 'MHT'), (10000, 'MHT')]:
+    # for (n_particles, method) in [(10, 'sequential_proposal_SMC'), (100, 'sequential_proposal_SMC'), (200, 'sequential_proposal_SMC'), (500, 'sequential_proposal_SMC'), (1000, 'sequential_proposal_SMC'), (10000, 'sequential_proposal_SMC')]:
+    # for (n_particles, method) in [(11, 'sequential_proposal_SMC'), (12, 'sequential_proposal_SMC'), (13, 'sequential_proposal_SMC'), (14, 'sequential_proposal_SMC')]:
+  
+    # for (n_particles, method) in [(1, 'gt_assoc')]:
+    # for (n_particles, method) in [(1, 'gt_assoc'), (10, 'MHT'), (100, 'MHT')]:
+
     # for (n_particles, method) in [(100, 'MHT'), (1000, 'MHT'), (5000, 'MHT'), (10000, 'exact_sampling'), (20000, 'exact_sampling'), (20, 'exact_sampling'), (50, 'exact_sampling'),]:
     # for (n_particles, method) in [(10, 'exact_sampling'), (100, 'exact_sampling'), (1000, 'exact_sampling'), (100000, 'exact_sampling')]:
     # for (n_particles, method) in [(10, 'MHT'), (100, 'MHT'), (1000, 'MHT'), (100000, 'MHT')]:
@@ -122,38 +157,50 @@ def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_posit
                 for time_step, cur_timestep_log_likelihoods in enumerate(all_log_likelihoods):
                     adjusted_all_log_likelihoods.append([l - max_log_likelihoods[time_step] for l in cur_timestep_log_likelihoods])
 
-                plt.plot([cur_timestep_log_likelihoods for cur_timestep_log_likelihoods in adjusted_all_log_likelihoods], marker='x', linestyle="None", color='blue')
-                for cur_particle_log_likelihoods in log_likelihoods_from_most_probable_particles:
-                    adjusted_cur_particle_log_likelihoods = []
-                    for time_step, log_likelihood in enumerate(cur_particle_log_likelihoods):
-                        adjusted_cur_particle_log_likelihoods.append(log_likelihood - max_log_likelihoods[time_step])
-                    plt.plot(adjusted_cur_particle_log_likelihoods, marker='x', linestyle='-', color='blue')
-            
+
+                for i in range(gen_params.num_time_steps//10):
+                    plt.plot(range(i*10,i*10+10), [cur_timestep_log_likelihoods for cur_timestep_log_likelihoods in adjusted_all_log_likelihoods[i*10:i*10+10]], marker='x', linestyle="None", color='blue')
+                    for cur_particle_log_likelihoods in log_likelihoods_from_most_probable_particles:
+                        # print "cur_particle_log_likelihoods:", cur_particle_log_likelihoods
+                        adjusted_cur_particle_log_likelihoods = []
+                        for time_step, log_likelihood in enumerate(cur_particle_log_likelihoods):
+                            adjusted_cur_particle_log_likelihoods.append(log_likelihood - max_log_likelihoods[time_step])
+                        plt.plot(range(i*10,i*10+10), adjusted_cur_particle_log_likelihoods[i*10:i*10+10], marker='x', linestyle='-', color='blue')
+                        # print "adjusted_cur_particle_log_likelihoods:", adjusted_cur_particle_log_likelihoods
+                        # print
+                        
+                    plt.title('%s log likelihoods' % (method))
+                    plt.ylabel('log likelihood')                
+                    plt.xlabel('time step')
+                    plt.savefig(experiment_folder + cur_experiment + '_log_likelihoods_%d' % i)
+                    plt.close()
 
             else:
                 plt.plot([cur_timestep_log_likelihoods for cur_timestep_log_likelihoods in all_log_likelihoods], marker='x', linestyle="None", color='blue')
                 for cur_particle_log_likelihoods in log_likelihoods_from_most_probable_particles:
                     plt.plot(cur_particle_log_likelihoods, marker='x', linestyle='-', color='blue')
 
-            plt.title('%s log likelihoods' % (method))
-            plt.ylabel('log likelihood')                
-            plt.ylabel('time step')
-            plt.savefig(experiment_folder + cur_experiment + '_log_likelihoods')
-            plt.close()
+                plt.title('%s log likelihoods' % (method))
+                plt.ylabel('log likelihood')                
+                plt.xlabel('time step')
+                plt.savefig(experiment_folder + cur_experiment + '_log_likelihoods')
+                plt.close()
 
             if PLOT_ADJUSTED_LOG_LIKELIHOODS:
 
                 #ground truth log likelihoods
                 adjusted_gt_log_likelihoods = []
                 for time_step, log_likelihood in enumerate(gt_all_log_likelihoods):
+                    print "gt_log_likelihood:", log_likelihood, "max_log_likelihoods[time_step]:", max_log_likelihoods[time_step]   
                     adjusted_gt_log_likelihoods.append(log_likelihood - max_log_likelihoods[time_step])
                 plt.plot(adjusted_gt_log_likelihoods, marker='x', linestyle='-', color='green')
                 plt.title('%s gt log likelihoods' % (method))
                 plt.ylabel('gt log likelihood - largest inferred log likelihood')                
-                plt.ylabel('time step')
+                plt.xlabel('time step')
                 plt.savefig(experiment_folder + cur_experiment + '_gt_log_likelihoods')
                 plt.close()                
-
+            print "gt_all_log_likelihoods:", gt_all_log_likelihoods
+            print "log_likelihoods_from_most_probable_particles:", log_likelihoods_from_most_probable_particles
             #plot trajectories
             for target_idx in range(gen_params.num_targets):
                 inferred_trajectory_idx = association_list[target_idx][0]
@@ -164,7 +211,7 @@ def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_posit
                 plt.plot([x[0] for x in all_states[gt_trajectory_idx]], label='true states', marker='x', linestyle="None")
                 plt.plot([z[0] for z in all_measurements[gt_trajectory_idx]], label='measurements', marker='+', linestyle="None")
             #     plt.ylabel('some numbers')
-                plt.title('%s target %d, inferred_target %d' % (method, gt_trajectory_idx, inferred_trajectory_idx))
+                plt.title('%s target %d (k=%f), inferred_target %d (k=%f)' % (method, gt_trajectory_idx, spring_constants[gt_trajectory_idx], inferred_trajectory_idx, spring_constants[inferred_trajectory_idx]))
                 plt.legend()
                 # plt.show()
                 plt.savefig(experiment_folder + cur_experiment + 'target_%d' % target_idx)
@@ -252,24 +299,32 @@ if __name__ == "__main__":
     # markov_order = 1
     # num_targets = 15  
 
-    num_targets = 10
+    num_targets = 20
 
 
     # run_experiment_over_parameter_set(num_time_steps=20, num_targets=3,\
     #                                   initial_position_variance=0, initial_vel_variance=5000, measurement_variance=.01, spring_k=15, dt=.1)
             
 
-    run_experiment_over_parameter_set(num_time_steps=20, num_targets=num_targets,\
-                                      initial_position_means=[40*np.random.rand() for i in range(num_targets)],\
-                                      # initial_position_means=[20*np.random.rand() for i in range(num_targets)],\
-                                      initial_position_variance=6, initial_vel_variance=30, measurement_variance=1,\
-                                      spring_constants=[100*np.random.rand() for i in range(num_targets)], dt=.1)
+    # run_experiment_over_parameter_set(num_time_steps=20, num_targets=num_targets,\
+    #                                   initial_position_means=[40*np.random.rand() for i in range(num_targets)],\
+    #                                   # initial_position_means=[20*np.random.rand() for i in range(num_targets)],\
+    #                                   initial_position_variance=6, initial_vel_variance=30, measurement_variance=1,\
+    #                                   spring_constants=[100*np.random.rand() for i in range(num_targets)], dt=.1)
 
     # run_experiment_over_parameter_set(num_time_steps=50, num_targets=num_targets,\
     #                                   initial_position_means=[40*np.random.rand() for i in range(num_targets)],\
     #                                   # initial_position_means=[20*np.random.rand() for i in range(num_targets)],\
     #                                   initial_position_variance=20, initial_vel_variance=30, measurement_variance=1,\
     #                                   spring_constants=[100*np.random.rand() for i in range(num_targets)], dt=.01)
+
+
+    run_experiment_over_parameter_set(num_time_steps=20, num_targets=num_targets,\
+                                      initial_position_means=[10*np.random.rand() for i in range(num_targets)],\
+                                      # initial_position_means=[20*np.random.rand() for i in range(num_targets)],\
+                                      initial_velocity_means=[100*np.random.rand() for i in range(num_targets)],\
+                                      initial_position_variance=.20, initial_vel_variance=.30, measurement_variance=1,\
+                                      spring_constants=[1000*np.random.rand() for i in range(num_targets)], dt=.01)
 
 
     # run_experiment_over_parameter_set(num_time_steps=10, num_targets=num_targets,\
