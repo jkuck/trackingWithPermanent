@@ -476,12 +476,14 @@ def exact_sampling_step(particle_set, cur_time_step_measurements):
         # try to help numerical issues, might not help
         for row in range(probs.shape[0]):
             max_row_val = np.max(probs[row])
-            probs[row] /= max_row_val
-            particle_prior_prob *= max_row_val
+            if max_row_val > 0.0:
+                probs[row] /= max_row_val
+                particle_prior_prob *= max_row_val
         for col in range(probs.shape[1]):
             max_col_val = np.max(probs[:,col])
-            probs[:,col] /= max_col_val
-            particle_prior_prob *= max_col_val            
+            if max_col_val > 0.0:
+                probs[:,col] /= max_col_val
+                particle_prior_prob *= max_col_val            
 
         # print "probs:"
         # print probs
@@ -577,14 +579,16 @@ def exact_sampling_step_debug(particle_set, cur_time_step_measurements):
         # try to help numerical issues, might not help
         for row in range(probs.shape[0]):
             max_row_val = np.max(probs[row])
-            probs[row] /= max_row_val
-            # particle_prior_prob *= max_row_val
-            matrix_rescaling *= max_row_val
+            if max_row_val > 0.0:
+                probs[row] /= max_row_val
+                # particle_prior_prob *= max_row_val
+                matrix_rescaling *= max_row_val
         for col in range(probs.shape[1]):
             max_col_val = np.max(probs[:,col])
-            probs[:,col] /= max_col_val
-            # particle_prior_prob *= max_col_val            
-            matrix_rescaling *= max_col_val            
+            if max_col_val > 0.0:
+                probs[:,col] /= max_col_val
+                # particle_prior_prob *= max_col_val            
+                matrix_rescaling *= max_col_val            
 
         particle_prior_prob *= matrix_rescaling
         # print "probs:"
@@ -1030,6 +1034,7 @@ def run_tracking(all_measurements, tracking_method, generative_parameters, n_par
         effective_num_particles = 1/np.sum(np.power(normalized_importance_weights, 2))
         print "effective number of particles =", effective_num_particles
         # if effective_num_particles < N_PARTICLES/10:
+        # if effective_num_particles < 1.001:
         if False:
             print "resampling particles"
             perform_resampling(particle_set)         

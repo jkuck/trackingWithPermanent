@@ -9,6 +9,7 @@ from permanent import permanent as rysers_permanent
 
 from IPython.utils import io
 import pickle
+import matplotlib
 import matplotlib.pyplot as plt
 COLORMAP = plt.cm.gist_ncar
 
@@ -41,7 +42,7 @@ def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_posit
     # experiment_name = 'moreDEBUGCHECK_%dtargets_seed=%d' % (num_targets, SEED)
 
     # experiment_name = 'fixImportanceWeightParticleFilter_noResample_noSlackTightening_estimatePermanent_%dtargets_seed=%d' % (num_targets, SEED)
-    experiment_name = 'fixImportanceWeightParticleFilter_noResample_DEBUG_estimatePermanent_%dtargets_seed=%d' % (num_targets, SEED)
+    experiment_name = 'icml_fixImportanceWeightParticleFilter_noResample_DEBUG_estimatePermanent_shorter_spreadOutINit%dtargets_seed=%d' % (num_targets, SEED)
 
    # experiment_name = 'fixImportanceWeightParticleFilter_noResample_estimatePermanent_%dtargets_seed=%d' % (num_targets, SEED)
     # experiment_name = 'fixImportanceWeightParticleFilter1ResampleALot_%dtargets_seed=%d' % (num_targets, SEED)
@@ -95,9 +96,22 @@ def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_posit
     # for (n_particles, method) in [(100, 'exact_sampling'), (90, 'exact_sampling'), (100, 'exact_sampling'), (10, 'MHT'), (100, 'MHT'), (500, 'MHT'), (1000, 'MHT'), (5000, 'MHT'), (10000, 'exact_sampling'), (20000, 'exact_sampling'), (20, 'exact_sampling'), (50, 'exact_sampling'),]:
     #for (n_particles, method) in [(10, 'exact_sampling'), (10, 'MHT'), (100, 'MHT'), (500, 'MHT'), (1000, 'MHT'), (5000, 'MHT'), (10000, 'MHT'), (20000, 'MHT'), (20, 'exact_sampling')]:
     
-    for (n_particles, method) in [(11, 'MHT'), (100, 'MHT')]:
+    # for (n_particles, method) in [(11, 'MHT'), (100, 'MHT')]:
     # for (n_particles, method) in [(10, 'exact_sampling'), (11, 'exact_sampling'), (12, 'exact_sampling'), (13, 'exact_sampling'), (100, 'exact_sampling'), (200, 'exact_sampling'), (500, 'exact_sampling'), (1000, 'exact_sampling'), (10000, 'exact_sampling')]:
-    # for (n_particles, method) in [(11, 'exact_sampling'), (12, 'exact_sampling'), (13, 'exact_sampling'), (14, 'exact_sampling')]:
+    list_of_particle_counts = []
+    list_of_log_likelihoods = []
+    list_of_mean_squared_errors = []
+    # for (n_particles, method) in [(11, 'exact_sampling'),(13, 'exact_sampling'),(15, 'exact_sampling'),\
+    #                               (50, 'exact_sampling'),(70, 'exact_sampling'),(100, 'exact_sampling'),(150, 'exact_sampling'),(200, 'exact_sampling'),(400, 'exact_sampling')]:
+    for (n_particles, method) in [(500, 'exact_sampling'),(1000, 'exact_sampling'),(2000, 'exact_sampling'),(5000, 'exact_sampling'),(10000, 'exact_sampling'),(20000, 'exact_sampling')]:
+
+    # for (n_particles, method) in [(11, 'sequential_proposal_SMC'),(13, 'sequential_proposal_SMC'),(15, 'sequential_proposal_SMC'),\
+    #                               (50, 'sequential_proposal_SMC'),(70, 'sequential_proposal_SMC'),(100, 'sequential_proposal_SMC'),(150, 'sequential_proposal_SMC'),(200, 'sequential_proposal_SMC'),(400, 'sequential_proposal_SMC'),\
+    #                               (500, 'sequential_proposal_SMC'),(1000, 'sequential_proposal_SMC'),(2000, 'sequential_proposal_SMC'),(5000, 'sequential_proposal_SMC'),(10000, 'sequential_proposal_SMC'),(20000, 'sequential_proposal_SMC')]:
+
+    # for (n_particles, method) in [(10, 'MHT'),(50, 'MHT'),(100, 'MHT'),\
+    #                               (500, 'MHT'),(1000, 'MHT'),(2000, 'MHT'),(5000, 'MHT'),(10000, 'MHT'),(20000, 'MHT')]:
+
 
     # for (n_particles, method) in [(10, 'MHT'), (100, 'MHT'), (200, 'MHT'), (500, 'MHT'), (1000, 'MHT'), (10000, 'MHT')]:
     # for (n_particles, method) in [(10, 'sequential_proposal_SMC'), (100, 'sequential_proposal_SMC'), (200, 'sequential_proposal_SMC'), (500, 'sequential_proposal_SMC'), (1000, 'sequential_proposal_SMC'), (10000, 'sequential_proposal_SMC')]:
@@ -139,6 +153,15 @@ def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_posit
             assert(not (trajectory_costs == np.inf).any())
             (association_list, minimum_cost) = find_min_cost(trajectory_costs)
             mean_squared_error = minimum_cost/(gen_params.num_targets*num_time_steps)
+
+
+            list_of_particle_counts.append(n_particles)
+            list_of_log_likelihoods.append(most_probable_particle_log_prob)
+            list_of_mean_squared_errors.append(mean_squared_error)
+
+            f = open(experiment_folder + '%s_results_2.pickle'%method, 'w')
+            pickle.dump((list_of_particle_counts, list_of_log_likelihoods, list_of_mean_squared_errors, gt_likelihood), f)
+            f.close()              
 
             f = open(experiment_folder + 'log_likelihoods.txt', 'a')
             f.write(cur_experiment + ' log_likelihood = %f, mean_squared_error = %f\n' % (most_probable_particle_log_prob, mean_squared_error))
@@ -217,6 +240,81 @@ def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_posit
                 plt.savefig(experiment_folder + cur_experiment + 'target_%d' % target_idx)
                 plt.close()
 
+def plot_log_likelihoods(num_targets):
+    experiment_name = 'icml_fixImportanceWeightParticleFilter_noResample_DEBUG_estimatePermanent_shorter_spreadOutINit%dtargets_seed=%d' % (num_targets, SEED)
+    experiment_folder = './' + experiment_name + '/'
+
+    for method in ['exact_sampling', 'sequential_proposal_SMC', 'MHT']:
+        f = open(experiment_folder + '%s_results.pickle'%method, 'r')
+        (list_of_particle_counts, list_of_log_likelihoods, list_of_mean_squared_errors, gt_likelihood) = pickle.load(f)
+        f.close()              
+
+        if method == 'exact_sampling':
+            f = open(experiment_folder + '%s_results.pickle'%method, 'r')
+            (list_of_particle_counts1, list_of_log_likelihoods1, list_of_mean_squared_errors1, gt_likelihood1) = pickle.load(f)
+            f.close()              
+            list_of_particle_counts.extend(list_of_particle_counts1)
+            list_of_log_likelihoods.extend(list_of_log_likelihoods1)
+            list_of_mean_squared_errors.extend(list_of_mean_squared_errors1)
+
+
+        if method == 'exact_sampling':
+            label = 'Optimal Proposal Distribution'
+        elif method == 'sequential_proposal_SMC':
+            label = 'Sequential Proposal Distribution'
+        else:
+            label = 'MHT'
+        plt.plot(list_of_particle_counts, list_of_log_likelihoods, label=label, marker='x', linestyle="None")
+
+    # matplotlib.rcParams.update({'font.size': 30})
+    plt.axhline(y=gt_likelihood, linewidth=1, color='b', label='Ground Truth')
+    plt.ylabel('Log-Likelihood', fontsize=18)
+    plt.xlabel('Particle Count', fontsize=18)
+    plt.title('Maximum Inferred Log-Likelihood', fontsize=22)
+    plt.legend(loc='lower right',prop={'size': 15},# bbox_to_anchor=(0.5, -.1),
+              fancybox=False, shadow=False, ncol=1, numpoints = 1)
+    # plt.show()
+    plt.savefig(experiment_folder + 'all_log_likelihoods', bbox_inches = "tight")
+    plt.close()    
+
+def plot_mean_squared_errors(num_targets):
+    experiment_name = 'icml_fixImportanceWeightParticleFilter_noResample_DEBUG_estimatePermanent_shorter_spreadOutINit%dtargets_seed=%d' % (num_targets, SEED)
+    experiment_folder = './' + experiment_name + '/'
+
+    for method in ['exact_sampling', 'sequential_proposal_SMC', 'MHT']:
+        f = open(experiment_folder + '%s_results.pickle'%method, 'r')
+        (list_of_particle_counts, list_of_log_likelihoods, list_of_mean_squared_errors, gt_likelihood) = pickle.load(f)
+        f.close() 
+
+        if method == 'exact_sampling':
+            f = open(experiment_folder + '%s_results_2.pickle'%method, 'r')
+            (list_of_particle_counts1, list_of_log_likelihoods1, list_of_mean_squared_errors1, gt_likelihood1) = pickle.load(f)
+            f.close()              
+            list_of_particle_counts.extend(list_of_particle_counts1)
+            list_of_log_likelihoods.extend(list_of_log_likelihoods1)
+            list_of_mean_squared_errors.extend(list_of_mean_squared_errors1)
+
+        print method
+        print list_of_log_likelihoods
+        print list_of_particle_counts
+
+        if method == 'exact_sampling':
+            label = 'Optimal Proposal Distribution'
+        elif method == 'sequential_proposal_SMC':
+            label = 'Sequential Proposal Distribution'
+        else:
+            label = 'MHT'             
+        plt.plot(list_of_particle_counts, list_of_mean_squared_errors, label=label, marker='x', linestyle="None")
+
+    # matplotlib.rcParams.update({'font.size': 10})
+    plt.ylabel('Mean Squared Error', fontsize=18)
+    plt.xlabel('Particle Count', fontsize=18)
+    plt.title('Target Position Mean Squared Error', fontsize=22)
+    plt.legend(loc='upper right',prop={'size': 15},# bbox_to_anchor=(0.5, -.1),
+              fancybox=False, shadow=False, ncol=1, numpoints = 1)
+    # plt.show()
+    plt.savefig(experiment_folder + 'all_mean_squared_errors', bbox_inches = "tight")
+    plt.close()      
 
 def replot_previous_experiment_data():
     experiment_name = 'test_experiment'
@@ -299,8 +397,11 @@ if __name__ == "__main__":
     # markov_order = 1
     # num_targets = 15  
 
-    num_targets = 20
+    num_targets = 10
 
+    plot_log_likelihoods(num_targets=num_targets)
+    plot_mean_squared_errors(num_targets=num_targets)
+    sleep(3)
 
     # run_experiment_over_parameter_set(num_time_steps=20, num_targets=3,\
     #                                   initial_position_variance=0, initial_vel_variance=5000, measurement_variance=.01, spring_k=15, dt=.1)
@@ -318,13 +419,22 @@ if __name__ == "__main__":
     #                                   initial_position_variance=20, initial_vel_variance=30, measurement_variance=1,\
     #                                   spring_constants=[100*np.random.rand() for i in range(num_targets)], dt=.01)
 
+    #previous experiment before getting stuff runnig before ICML
+    # run_experiment_over_parameter_set(num_time_steps=50, num_targets=num_targets,\
+    #                                   initial_position_means=[10*np.random.rand() for i in range(num_targets)],\
+    #                                   # initial_position_means=[20*np.random.rand() for i in range(num_targets)],\
+    #                                   initial_velocity_means=[100*np.random.rand() for i in range(num_targets)],\
+    #                                   initial_position_variance=.20, initial_vel_variance=.30, measurement_variance=1,\
+    #                                   spring_constants=[1000*np.random.rand() for i in range(num_targets)], dt=.01)
+
 
     run_experiment_over_parameter_set(num_time_steps=20, num_targets=num_targets,\
                                       initial_position_means=[10*np.random.rand() for i in range(num_targets)],\
                                       # initial_position_means=[20*np.random.rand() for i in range(num_targets)],\
                                       initial_velocity_means=[100*np.random.rand() for i in range(num_targets)],\
-                                      initial_position_variance=.20, initial_vel_variance=.30, measurement_variance=1,\
-                                      spring_constants=[1000*np.random.rand() for i in range(num_targets)], dt=.01)
+                                      initial_position_variance=10.0, initial_vel_variance=.30, measurement_variance=1,\
+                                      spring_constants=[2000*np.random.rand() for i in range(num_targets)], dt=.01)
+
 
 
     # run_experiment_over_parameter_set(num_time_steps=10, num_targets=num_targets,\
