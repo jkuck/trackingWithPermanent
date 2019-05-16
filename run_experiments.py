@@ -42,7 +42,8 @@ def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_posit
     # experiment_name = 'moreDEBUGCHECK_%dtargets_seed=%d' % (num_targets, SEED)
 
     # experiment_name = 'fixImportanceWeightParticleFilter_noResample_noSlackTightening_estimatePermanent_%dtargets_seed=%d' % (num_targets, SEED)
-    experiment_name = 'icml_fixImportanceWeightParticleFilter_noResample_DEBUG_estimatePermanent_shorter_spreadOutINit%dtargets_seed=%d' % (num_targets, SEED)
+    # experiment_name = 'icml_fixImportanceWeightParticleFilter_noResample_DEBUG_estimatePermanent_shorter_spreadOutINit%dtargets_seed=%d' % (num_targets, SEED)
+    experiment_name = 'test_tighter_bound%dtargets_seed=%d' % (num_targets, SEED)
 
    # experiment_name = 'fixImportanceWeightParticleFilter_noResample_estimatePermanent_%dtargets_seed=%d' % (num_targets, SEED)
     # experiment_name = 'fixImportanceWeightParticleFilter1ResampleALot_%dtargets_seed=%d' % (num_targets, SEED)
@@ -103,7 +104,7 @@ def run_experiment_over_parameter_set(num_time_steps, num_targets, initial_posit
     list_of_mean_squared_errors = []
     # for (n_particles, method) in [(11, 'exact_sampling'),(13, 'exact_sampling'),(15, 'exact_sampling'),\
     #                               (50, 'exact_sampling'),(70, 'exact_sampling'),(100, 'exact_sampling'),(150, 'exact_sampling'),(200, 'exact_sampling'),(400, 'exact_sampling')]:
-    for (n_particles, method) in [(500, 'exact_sampling'),(1000, 'exact_sampling'),(2000, 'exact_sampling'),(5000, 'exact_sampling'),(10000, 'exact_sampling'),(20000, 'exact_sampling')]:
+    for (n_particles, method) in [(5, 'exact_sampling'), (500, 'exact_sampling'),(1000, 'exact_sampling'),(2000, 'exact_sampling'),(5000, 'exact_sampling'),(10000, 'exact_sampling'),(20000, 'exact_sampling')]:
 
     # for (n_particles, method) in [(11, 'sequential_proposal_SMC'),(13, 'sequential_proposal_SMC'),(15, 'sequential_proposal_SMC'),\
     #                               (50, 'sequential_proposal_SMC'),(70, 'sequential_proposal_SMC'),(100, 'sequential_proposal_SMC'),(150, 'sequential_proposal_SMC'),(200, 'sequential_proposal_SMC'),(400, 'sequential_proposal_SMC'),\
@@ -362,6 +363,7 @@ def calc_permanent_rysers(matrix):
 
 
 if __name__ == "__main__":
+    PLOT_RESULTS = False
     # a = np.array([[1.27242553e-002, 0.00000000e+000, 1.20707341e-235, 2.24392756e-003, 0.00000000e+000, 0.00000000e+000, 8.86430921e-080, 0.00000000e+000, 0.00000000e+000, 1.00000000e+000, 1.25701570e-231, 6.93121164e-135, 0.00000000e+000, 0.00000000e+000, 5.07717856e-060,],
     #               [0.00000000e+000, 1.00000000e+000, 1.00000000e+000, 1.83366339e-187, 1.23217822e-018, 0.00000000e+000, 2.65897325e-048, 0.00000000e+000, 3.65830115e-004, 0.00000000e+000, 0.00000000e+000, 0.00000000e+000, 0.00000000e+000, 0.00000000e+000, 0.00000000e+000,],
     #               [0.00000000e+000, 2.54058400e-003, 1.00000000e+000, 1.33104113e-208, 1.61514466e-012, 0.00000000e+000, 1.14077851e-058, 0.00000000e+000, 1.00000000e+000, 0.00000000e+000, 0.00000000e+000, 0.00000000e+000, 0.00000000e+000, 0.00000000e+000, 0.00000000e+000,],
@@ -399,9 +401,11 @@ if __name__ == "__main__":
 
     num_targets = 10
 
-    plot_log_likelihoods(num_targets=num_targets)
-    plot_mean_squared_errors(num_targets=num_targets)
-    sleep(3)
+
+    if PLOT_RESULTS:
+        plot_log_likelihoods(num_targets=num_targets)
+        plot_mean_squared_errors(num_targets=num_targets)
+        sleep(3)
 
     # run_experiment_over_parameter_set(num_time_steps=20, num_targets=3,\
     #                                   initial_position_variance=0, initial_vel_variance=5000, measurement_variance=.01, spring_k=15, dt=.1)

@@ -602,10 +602,11 @@ def exact_sampling_step_debug(particle_set, cur_time_step_measurements):
         cur_all_association_matrices = [cur_a_matrix]
 
         # sampled_associations = multi_matrix_sample_associations_without_replacement(num_samples=1, all_association_matrices=cur_all_association_matrices)
+        # sleep(4)
         (sampled_association, permanent_estimate) = single_matrix_sample_associations_with_replacement(num_samples=1, single_association_matrices=cur_all_association_matrices)
         permanent_estimate *= matrix_rescaling
-        print "permanent_estimate = ", permanent_estimate,
-        print "sampled_association.meas_grp_associations", sampled_association.meas_grp_associations, "log prob:", np.log(sampled_association.complete_assoc_probability)
+        # print "permanent_estimate = ", permanent_estimate,
+        # print "sampled_association.meas_grp_associations", sampled_association.meas_grp_associations, "log prob:", np.log(sampled_association.complete_assoc_probability)
         child_particle = particle.create_child_particle(\
             log_child_imprt_weight=np.log(sampled_association.complete_assoc_probability) + np.log(cur_prior_prob),\
             # log_child_imprt_weight=np.log(sampled_association.complete_assoc_probability),\
